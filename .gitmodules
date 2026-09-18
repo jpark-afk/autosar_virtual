@@ -1,0 +1,3 @@
+[submodule "third_party/trampoline"]
+	path = third_party/trampoline
+	url = https://github.com/TrampolineRTOS/trampoline.git
