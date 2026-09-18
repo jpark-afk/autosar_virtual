@@ -1,0 +1,13 @@
+diff --git a/machines/posix/tpl_machine_posix.c b/machines/posix/tpl_machine_posix.c
+index 45d7af863..831572402 100644
+--- a/machines/posix/tpl_machine_posix.c
++++ b/machines/posix/tpl_machine_posix.c
+@@ -219,7 +219,7 @@ void tpl_init_machine(void)
+     tpl_viper_init();
+ 
+ #if ((WITH_AUTOSAR == YES) && (SCHEDTABLE_COUNT > 0)) || (ALARM_COUNT > 0)
+-    tpl_viper_start_auto_timer(signal_for_counters,10000);  /* 10 ms */
++    tpl_viper_start_auto_timer(signal_for_counters,1000);   /* 1 ms */
+ #endif
+ 
+ #if WITH_AUTOSAR_TIMING_PROTECTION == YES

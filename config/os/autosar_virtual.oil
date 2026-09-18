@@ -1,0 +1,90 @@
+OIL_VERSION = "2.5";
+
+IMPLEMENTATION trampoline {
+
+    TASK {
+        UINT32 STACKSIZE = 32768;
+    };
+
+    ISR {
+        UINT32 STACKSIZE = 32768;
+    };
+};
+
+CPU autosar_virtual {
+
+    OS config {
+        STATUS = EXTENDED;
+
+        TRACE = TRUE {
+            FORMAT = json;
+            PROC = TRUE;
+        };
+
+        BUILD = TRUE {
+            APP_SRC = "stub.c";
+            TRAMPOLINE_BASE_PATH = "../../third_party/trampoline";
+            CFLAGS = "-ggdb";
+            APP_NAME = "autosar_virtual";
+            LINKER = "gcc";
+            SYSTEM = PYTHON;
+        };
+    };
+
+    APPMODE stdAppmode {};
+
+    /*
+     * ID 0 is reserved by the RTI AUTOSAR PSL assumptions.
+     * Keep this resource before RTI_GlobalResource.
+     */
+    RESOURCE DummyResource {
+        RESOURCEPROPERTY = STANDARD;
+    };
+
+    RESOURCE RTI_GlobalResource {
+        RESOURCEPROPERTY = STANDARD;
+    };
+
+    EVENT RTI_GiveEvent {
+        MASK = 1;
+    };
+
+    EVENT RTI_TimeoutEvent {
+        MASK = 2;
+    };
+
+    /*
+     * Reserve Alarm ID 0.
+     * RTI AUTOSAR PSL requires first_alarm != 0.
+     */
+    ALARM DummyAlarm {
+        COUNTER = SystemCounter;
+        AUTOSTART = FALSE;
+        ACTION = ACTIVATETASK {
+            TASK = RTI_Task;
+        };
+    };
+
+    ALARM RTI_SemaphoreAlarm {
+        COUNTER = SystemCounter;
+        AUTOSTART = FALSE;
+        ACTION = SETEVENT {
+            TASK = RTI_Task;
+            EVENT = RTI_TimeoutEvent;
+        };
+    };
+
+    TASK RTI_Task {
+        PRIORITY = 1;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+
+        RESOURCE = RTI_GlobalResource;
+        
+        EVENT = RTI_GiveEvent;
+        EVENT = RTI_TimeoutEvent;
+    };
+};

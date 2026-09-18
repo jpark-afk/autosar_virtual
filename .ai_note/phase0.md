@@ -1,6 +1,3 @@
-아래 그대로 `README.md`로 사용하면 돼.
-
-````markdown
 # Virtual AUTOSAR Linux PoC — Phase 0
 
 ## PIL ABI / Development Environment Validation
@@ -477,4 +474,4 @@ git commit -m "phase0: record validated RTI Micro environment"
 ```
 
 This commit represents the validated Phase 0 baseline.
-````
+

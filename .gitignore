@@ -1,0 +1,10 @@
+
+# Phase2 build / GOIL generated files
+/build/
+/autosar_virtual/
+/os/
+/build.py
+/make.py
+/readTrace.py
+/trace.json
+/config/os/build/

@@ -1,6 +1,3 @@
-아래 내용 전체를 그대로 `.ai_note/phase1.md`에 붙여넣으면 돼.
-
-````markdown
 # Phase 1 — Trampoline POSIX AUTOSAR OS Integration
 
 ## Goal
@@ -535,4 +532,4 @@ ShutdownOS()             PASS
 Next phase:
 
 **Phase 2 — RTI AUTOSAR PSL integration with Trampoline**
-````
+
