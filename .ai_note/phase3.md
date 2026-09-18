@@ -15,8 +15,8 @@ DDS CDD
   -> Windows Host DDS application
 ```
 ## Phase4 Handover
-
-Use this section as the starting context for the next agent. The architecture is fixed and must not be redesigned:
+system_property.psl_property.timer_resource_id = OsResource_DdsTimer;
+system_property.psl_property.netio_resource_id = OsResource_DdsNetio;
 
 ```text
 Windows Host DDS application
