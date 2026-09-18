@@ -1,7 +1,7 @@
 #ifndef COMPILER_H
 #define COMPILER_H
 
-#include <rti_me/autosar/Compiler_Cfg.h>
+#include <autosar/Compiler_Cfg.h>
 
 /* AUTOSAR compiler abstraction for Trampoline/POSIX */
 

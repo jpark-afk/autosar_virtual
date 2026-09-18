@@ -1,7 +1,7 @@
 OIL_VERSION = "2.5";
 
-IMPLEMENTATION trampoline {
 
+IMPLEMENTATION trampoline {
     TASK {
         UINT32 STACKSIZE = 32768;
     };
@@ -35,15 +35,24 @@ CPU autosar_virtual {
 
     /*
      * ID 0 is reserved by the RTI AUTOSAR PSL assumptions.
-     * Keep this resource before RTI_GlobalResource.
+     * Keep this resource before OsResource_Dds.
      */
     RESOURCE DummyResource {
         RESOURCEPROPERTY = STANDARD;
     };
 
-    RESOURCE RTI_GlobalResource {
+    RESOURCE OsResource_DdsMain {
+    RESOURCEPROPERTY = STANDARD;
+    };
+
+    RESOURCE OsResource_DdsTimer {
         RESOURCEPROPERTY = STANDARD;
     };
+
+    RESOURCE OsResource_DdsNetio {
+        RESOURCEPROPERTY = STANDARD;
+    };
+    
 
     EVENT RTI_GiveEvent {
         MASK = 1;
@@ -74,6 +83,48 @@ CPU autosar_virtual {
         };
     };
 
+    ALARM DdsCddTimerTickAlarm {
+        COUNTER = SystemCounter;
+
+        AUTOSTART = TRUE {
+            ALARMTIME = 10;
+            CYCLETIME = 10;
+            APPMODE = stdAppmode;
+        };
+
+        ACTION = ACTIVATETASK {
+            TASK = DdsCddTimerTick_Task;
+        };
+    };
+
+    ALARM DdsCdd100msAlarm {
+        COUNTER = SystemCounter;
+
+        AUTOSTART = TRUE {
+            ALARMTIME = 1000;
+            CYCLETIME = 1000;
+            APPMODE = stdAppmode;
+        };
+
+        ACTION = ACTIVATETASK {
+            TASK = DdsCddReadWrite_Task;
+        };
+    };
+
+    ALARM TcpIp_5ms_Alarm {
+        COUNTER = SystemCounter;
+
+        AUTOSTART = TRUE {
+            ALARMTIME = 5;
+            CYCLETIME = 5;
+            APPMODE = stdAppmode;
+        };
+
+        ACTION = ACTIVATETASK {
+            TASK = TcpIp_Task;
+        };
+    };
+
     TASK RTI_Task {
         PRIORITY = 1;
         AUTOSTART = TRUE {
@@ -82,9 +133,59 @@ CPU autosar_virtual {
         ACTIVATION = 1;
         SCHEDULE = FULL;
 
-        RESOURCE = RTI_GlobalResource;
+        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsTimer;
         
         EVENT = RTI_GiveEvent;
         EVENT = RTI_TimeoutEvent;
+    };
+
+    TASK TcpIp_Task {
+        PRIORITY = 10;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+        RESOURCE = OsResource_DdsNetio;
+        RESOURCE = OsResource_DdsMain;
+    };
+
+    /* ----------------------------------------------------------------------
+     * DDS CDD Virtual RTE Tasks
+     * ---------------------------------------------------------------------- */
+
+    EVENT DdsCddProcessDataEvent {
+        MASK = AUTO;
+    };
+
+    TASK DdsCddProcessData_Task {
+        PRIORITY = 1;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+
+        EVENT = DdsCddProcessDataEvent;
+        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsNetio;
+    };
+
+    TASK DdsCddTimerTick_Task {
+        PRIORITY = 5;
+        AUTOSTART = FALSE;
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+        RESOURCE = OsResource_DdsTimer;
+    };
+
+    TASK DdsCddReadWrite_Task {
+        PRIORITY = 2;
+        AUTOSTART = FALSE;
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsTimer;
     };
 };

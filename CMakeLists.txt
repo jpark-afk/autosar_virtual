@@ -54,8 +54,26 @@ add_executable(autosar_virtual
     ${CMAKE_SOURCE_DIR}/platform/autosar/TcpIp.c
     ${CMAKE_SOURCE_DIR}/config/os/stub.c
 
-    # DDS files
-    ${CMAKE_SOURCE_DIR}/platform/rti/RtiPslConfig.c
+    # Virtual RTE
+    ${CMAKE_SOURCE_DIR}/platform/autosar/Rte_DdsCddType.c
+
+    # DDS CDD - AUTOSAR generated runnable
+    ${CMAKE_SOURCE_DIR}/dds_example/autosar_gen/DdsCdd.c
+
+    # DDS CDD - AUTOSAR adaptation
+    ${CMAKE_SOURCE_DIR}/dds_example/adaptation/dds_cdd_adapter.c
+
+    # DDS generated types / conversions
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_conversions.c
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_types.c
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_typesPlugin.c
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_typesSupport.c
+
+    # DDS implementation
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl/dds_impl.c
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl/dds_systemAppgen.c
+
+    # Phase2 RTI PSL configuration - temporary
 )
 
 target_compile_definitions(autosar_virtual PRIVATE
@@ -66,21 +84,30 @@ target_compile_definitions(autosar_virtual PRIVATE
 
 target_include_directories(autosar_virtual PRIVATE
 
+    # Virtual AUTOSAR overrides
+    ${CMAKE_SOURCE_DIR}/platform/autosar
+
+    # RTI
     ${RTIMEHOME}/include/rti_me
     ${RTIMEHOME}/include/rti_me/autosar
     ${RTIMEHOME}/src/rti_me_psl
 
-    ${TRAMPOLINE_HOME}/autosar
-    ${CMAKE_SOURCE_DIR}/autosar_virtual
-
+    ${TRAMPOLINE_HOME}/autosar   
     ${TRAMPOLINE_HOME}/os
     ${TRAMPOLINE_HOME}/machines/posix
     ${TRAMPOLINE_HOME}/viper
-
-    ${CMAKE_SOURCE_DIR}/platform/autosar
     ${TRAMPOLINE_HOME}/debug
 
+    ${CMAKE_SOURCE_DIR}/autosar_virtual
+
     ${CMAKE_SOURCE_DIR}/platform/rti
+
+    # Virtual RTE / DDS CDD
+    ${CMAKE_SOURCE_DIR}/dds_example
+    ${CMAKE_SOURCE_DIR}/dds_example/autosar_gen
+    ${CMAKE_SOURCE_DIR}/dds_example/adaptation
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen
+    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl
 
 )
 
@@ -90,8 +117,17 @@ target_compile_options(autosar_virtual PRIVATE
 )
 
 target_link_libraries(autosar_virtual PRIVATE
+    "-Wl,--start-group"
     ${RTI_PIL_LIB_DIR}/librti_mezd.a
+    ${RTI_PIL_LIB_DIR}/librti_me_appgenzd.a
+    ${RTI_PIL_LIB_DIR}/librti_me_discdpdezd.a
+    ${RTI_PIL_LIB_DIR}/librti_me_discdpsezd.a
+    ${RTI_PIL_LIB_DIR}/librti_me_rhsmzd.a
+    ${RTI_PIL_LIB_DIR}/librti_me_whsmzd.a
+    "-Wl,--end-group"
     rt
     pthread
 )
+
+target_link_options(autosar_virtual PRIVATE -rdynamic)
 

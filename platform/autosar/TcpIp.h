@@ -30,6 +30,10 @@ typedef struct
 #define TCPIP_PORT_ANY         ((uint16)0U)
 #define TCPIP_E_ARP_CACHE_MISS ((Std_ReturnType)0x02U)
 
+#ifndef TCPIP_ENABLE_DIAGNOSTIC_LOG
+#define TCPIP_ENABLE_DIAGNOSTIC_LOG 0
+#endif
+
 Std_ReturnType TcpIp_GetIpAddr(
     TcpIp_LocalAddrIdType localAddrId,
     TcpIp_SockAddrType *localAddrPtr,
@@ -45,11 +49,30 @@ Std_ReturnType TcpIp_Close(
     TcpIp_SocketIdType SocketId,
     boolean Abort);
 
+Std_ReturnType TcpIp_TcpIp_DdsCddGetSocket(
+    TcpIp_DomainType domain,
+    TcpIp_ProtocolType protocol,
+    TcpIp_SocketIdType *socket_id);
+
+void TcpIp_PollDdsRx(void);
+
 Std_ReturnType TcpIp_UdpTransmit(
     TcpIp_SocketIdType SocketId,
     uint8 *DataPtr,
     TcpIp_SockAddrType *RemoteAddrPtr,
     uint16 DataLength);
+
+typedef void (*TcpIp_RxIndicationType)(
+    TcpIp_SocketIdType SocketId,
+    const uint8 *DataPtr,
+    uint16 DataLength);    
+
+void TcpIp_RxIndication(
+    TcpIp_SocketIdType SocketId,
+    const uint8 *DataPtr,
+    uint16 DataLength);
+
+extern void TcpIp_Log(const char *msg);
 
 #ifdef __cplusplus
 }

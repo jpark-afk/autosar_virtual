@@ -1,53 +1,270 @@
 #include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <errno.h>
 
 #include "tpl_os.h"
 #include "rti_me_psl.h"
-#include "RtiPslConfig.h"
 
-extern RTI_BOOL OSAPI_AutosarSystem_initialize(void);
+#include "TcpIp.h"
+
+#include "Rte_DdsCddType.h"
+
+extern void DdsCddTimerTick(void);
+extern void DdsCddTimerUpdate(void);
+extern void DdsCddWrite_Cabin_Door_PDIO_FL(void);
+extern void DdsCddRead_GCS_LEFT_2_PDIO_FL(void);
+extern void DdsCddProcessData(void);
+extern void DdsCdd_Init(void);
+extern void DdsCddStart(void);
+extern void DdsCdd_LocalIpAddrAssignmentChg(
+    TcpIp_LocalAddrIdType LocalAddrId,
+    TcpIp_IpAddrStateType State);
+
+//extern RTI_BOOL OSAPI_AutosarSystem_initialize(void);
+
+static int TcpIp_TestSocket = -1;
 
 int main(void)
-{
+{    
+    printf("[Virtual AUTOSAR] DdsCdd_Init before StartOS\n");
+    DdsCdd_Init();
+
     printf("[Virtual AUTOSAR] Starting Trampoline OS\n");
     StartOS(stdAppmode);
+
     return 0;
 }
 
 TASK(RTI_Task)
 {
-    RTI_BOOL ok;
-
     printf("[Virtual AUTOSAR] RTI_Task started\n");
 
-    RtiPslConfig_apply();
+    DdsCdd_LocalIpAddrAssignmentChg(
+        (TcpIp_LocalAddrIdType)0U,
+        TCPIP_IPADDR_STATE_ASSIGNED);
 
-    printf("[Virtual AUTOSAR] RTI PSL configuration applied\n");
+    DdsCddStart();
 
-    ok = OSAPI_System_initialize();
-
-    if (!ok)
-    {
-        printf("[Virtual AUTOSAR] ERROR: OSAPI_System_initialize failed\n");
-        ShutdownOS(E_OK);
-    }
-
-    printf("[Virtual AUTOSAR] OSAPI_System_initialize PASS\n");
-
-#ifndef RTI_CERT
-    ok = OSAPI_System_finalize();
-
-    if (!ok)
-    {
-        printf("[Virtual AUTOSAR] ERROR: OSAPI_System_finalize failed\n");
-        ShutdownOS(E_OK);
-    }
-
-    printf("[Virtual AUTOSAR] OSAPI_System_finalize PASS\n");
-#endif
-
-    printf("[Virtual AUTOSAR] Phase2 PASS\n");
-
-    ShutdownOS(E_OK);
+    printf("[Virtual AUTOSAR] DdsCddStart completed\n");
 
     TerminateTask();
 }
+
+static FILE *g_tcpip_log = NULL;
+
+static void TcpIp_LogInit(void)
+{
+#if TCPIP_ENABLE_DIAGNOSTIC_LOG
+    g_tcpip_log = fopen("/tmp/autosar_tcpip.log", "a");
+
+    if (g_tcpip_log != NULL)
+    {
+        setvbuf(g_tcpip_log, NULL, _IOLBF, 0);
+        fprintf(g_tcpip_log, "[TcpIp] logging started\n");
+    }
+#endif
+}
+
+void TcpIp_Log(const char *msg)
+{
+#if TCPIP_ENABLE_DIAGNOSTIC_LOG
+    if (g_tcpip_log != NULL)
+    {
+        fprintf(g_tcpip_log, "%s\n", msg);
+        fflush(g_tcpip_log);
+    }
+#else
+    (void)msg;
+#endif
+}
+
+static void TcpIp_Init(void)
+{
+    uint16 local_port = 50001U;
+
+    printf("[TcpIp] Init\n");
+    TcpIp_LogInit();
+
+    TcpIp_TestSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+    if (TcpIp_TestSocket < 0)
+    {
+        printf("[TcpIp] socket FAIL\n");
+        return;
+    }
+
+    /*
+     * Non-blocking socket.
+     * TcpIp_Task must never block the AUTOSAR OS.
+     */
+    int flags = fcntl(TcpIp_TestSocket, F_GETFL, 0);
+
+    if (flags >= 0)
+    {
+        (void)fcntl(
+            TcpIp_TestSocket,
+            F_SETFL,
+            flags | O_NONBLOCK);
+    }
+
+    if (TcpIp_Bind(
+            (TcpIp_SocketIdType)TcpIp_TestSocket,
+            (TcpIp_LocalAddrIdType)0U,
+            &local_port) != E_OK)
+    {
+        printf("[TcpIp] TcpIp_Bind FAIL\n");
+        close(TcpIp_TestSocket);
+        TcpIp_TestSocket = -1;
+        return;
+    }
+
+    printf("[TcpIp] UDP socket ready, port=%u\n", local_port);
+}
+
+static void TcpIp_PollRx(void)
+{
+    uint8 rx_buffer[1500];
+    struct sockaddr_in remote;
+    socklen_t remote_len = sizeof(remote);
+
+    if (TcpIp_TestSocket < 0)
+    {
+        return;
+    }
+
+    for (;;)
+    {
+        ssize_t rx_len;
+
+        rx_len = recvfrom(
+            TcpIp_TestSocket,
+            rx_buffer,
+            sizeof(rx_buffer),
+            0,
+            (struct sockaddr *)&remote,
+            &remote_len);
+
+        if (rx_len < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break;
+            }
+
+            printf("[TcpIp] recvfrom FAIL: errno=%d\n", errno);
+            break;
+        }
+
+        printf("[TcpIp] UDP RX: %ld bytes\n", (long)rx_len);
+        
+        TcpIp_Log("[TcpIp_PollRx] UDP received.\n");
+
+        /*
+         * Actual TcpIp receive indication.
+         */
+        TcpIp_RxIndication(
+            (TcpIp_SocketIdType)TcpIp_TestSocket,
+            rx_buffer,
+            (uint16)rx_len);
+    }
+}
+
+static void TcpIp_PollTx(void)
+{
+    uint8 data[] = "AUTOSAR UDP TEST";
+    TcpIp_SockAddrInetType remote;
+
+    if (TcpIp_TestSocket < 0)
+    {
+        return;
+    }
+
+    remote.domain = TCPIP_AF_INET;
+    remote.port = 50000U;
+
+    remote.addr[0] =
+        htonl((192U << 24) |
+              (168U << 16) |
+              (56U << 8) |
+              1U);
+
+    if (TcpIp_UdpTransmit(
+            (TcpIp_SocketIdType)TcpIp_TestSocket,
+            data,
+            (TcpIp_SockAddrType *)&remote,
+            (uint16)(sizeof(data) - 1U)) == E_OK)
+    {
+        printf("[TcpIp] UDP TX PASS\n");
+    }
+}
+
+TASK(TcpIp_Task)
+{
+    static boolean initialized = FALSE;
+
+    if (!initialized)
+    {
+        TcpIp_Init();
+        initialized = TRUE;
+    }
+
+    /*
+     * 5 ms polling
+     */
+    TcpIp_PollRx();
+    TcpIp_PollDdsRx();
+
+    /*
+     * Optional TX test.
+     */
+    //TcpIp_PollTx();
+
+    TerminateTask();
+}
+
+TASK(DdsCddTimerTick_Task)
+{
+    DdsCddTimerTick();
+
+    TerminateTask();
+}
+
+TASK(DdsCddReadWrite_Task)
+{
+    /*
+     * Initial Virtual RTE mapping:
+     * 1. DDS timer handler
+     * 2. RTE -> DDS write
+     * 3. DDS -> RTE read
+     */
+    TcpIp_Log("[Rte] DdsCddReadWrite_Task ENTER");
+    DdsCddTimerUpdate();
+    DdsCddWrite_Cabin_Door_PDIO_FL();
+    DdsCddRead_GCS_LEFT_2_PDIO_FL();
+
+    TerminateTask();
+}
+
+TASK(DdsCddProcessData_Task)
+{
+    EventMaskType events;
+
+    for (;;)
+    {
+        WaitEvent(DdsCddProcessDataEvent);
+
+        GetEvent(DdsCddProcessData_Task, &events);
+
+        if ((events & DdsCddProcessDataEvent) != 0U)
+        {
+            ClearEvent(DdsCddProcessDataEvent);
+
+            DdsCddProcessData();
+        }
+    }
+}
+
