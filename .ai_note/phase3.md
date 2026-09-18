@@ -4,6 +4,23 @@
 
 **STATUS: PASS** (Updated for Phase 4)
 
+## Official Phase Roadmap
+
+```text
+0  Environment / x86_64 ABI / PIL compatibility       PASS
+1  Trampoline POSIX AUTOSAR OS                       PASS
+2  RTI AUTOSAR PSL / PIL integration                 PASS
+3  Virtual TcpIp + real DDS E2E                      GOLDEN BASELINE
+4  DdsCdd RTE Auto Generator                         NEXT
+5  OS robustness                                     PLANNED
+6  AUTOSAR trace / Perfetto / OS monitor              PLANNED
+7  Stack / heap / memory monitor                      PLANNED
+8  Stress / fault injection                           PLANNED
+9  Final reusable virtual ECU                         PLANNED
+```
+
+Phase 3 is frozen as the communication Golden Baseline. Later phases must preserve its verified DDS E2E behavior.
+
 Phase 3 validated DDS CDD communication over the Linux virtual AUTOSAR path:
 
 ```text

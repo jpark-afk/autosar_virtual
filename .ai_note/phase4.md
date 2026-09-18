@@ -1,12 +1,108 @@
-# Phase 4 Handover Prompt
+# Phase 4 — DdsCdd RTE Auto Generator
 
 You are continuing the Linux AUTOSAR Virtual PoC in `/home/jpark/autosar_virtual`.
 
-Read this file before changing anything. Phase 3 is complete and working. Preserve the existing architecture and do not restart the investigation from Phase 0.
+Read this file before changing anything. Phase 3 is complete and working as the frozen Golden Baseline. Preserve it and do not restart the investigation from Phase 0.
+
+## Official Roadmap
+
+```text
+Phase 0  Environment / x86_64 ABI / PIL compatibility       PASS
+Phase 1  Trampoline POSIX AUTOSAR OS                       PASS
+Phase 2  RTI AUTOSAR PSL / PIL integration                 PASS
+Phase 3  Virtual TcpIp + real DDS E2E                      GOLDEN BASELINE
+Phase 4  DdsCdd RTE Auto Generator                         NEXT
+Phase 5  OS robustness                                     PLANNED
+Phase 6  AUTOSAR trace / Perfetto / OS monitor              PLANNED
+Phase 7  Stack / heap / memory monitor                      PLANNED
+Phase 8  Stress / fault injection                           PLANNED
+Phase 9  Final reusable virtual ECU                         PLANNED
+```
+
+Phase 3 is frozen. Do not change the communication foundation while developing Phase 4.
 
 ## Mission
 
-Continue development above the verified Phase 3 baseline. State one concrete Phase 4 goal before each change, make the smallest local edit, define one PASS criterion, and validate immediately.
+Phase 4 automatically analyzes a selected `DdsCdd` generated-code directory and generates or updates the minimum RTE compatibility interfaces required to compile that application in the existing Virtual AUTOSAR environment.
+
+This is not a general AUTOSAR RTE generator. It is a minimal compatibility generator for quickly importing replaceable DdsCdd generated applications.
+
+For each step, state one concrete goal, make the smallest edit, define one PASS criterion, and validate immediately.
+
+The design boundary is:
+
+```text
+CHANGEABLE
+DdsCdd generated C/H + optional ARXML
+  -> RTE Generator
+  -> generated minimal RTE
+
+FIXED / GOLDEN
+OS task template -> Trampoline -> RTI AUTOSAR PSL
+     -> DDS Micro PIL -> Virtual TcpIp
+```
+
+The generator must not modify or own the fixed OS, TcpIp, RTI, or DDS communication path.
+
+## Phase 4 Pass Criterion
+
+```text
+Replace the DdsCdd generated directory with another supported version
+ -> run RTE analysis/generation
+ -> build without manual DdsCdd source edits
+ -> unresolved RTE dependency count is zero
+ -> Phase 3 DDS bidirectional regression still passes
+```
+
+## Phase 4 Internal Steps
+
+```text
+4.1 Scanner
+4.2 Classifier
+4.3 Type extraction
+4.4 RTE generation
+4.5 Unresolved dependency report
+4.6 Import workflow
+4.7 Phase 3 regression
+```
+
+### 4.1 Scanner Scope
+
+The first implementation step scans only the selected generated-code directory and optional ARXML files. It extracts symbol references; it does not generate files yet.
+
+RTE candidates:
+
+```text
+Rte_Read_*
+Rte_Write_*
+Rte_Call_*
+Rte_IrvRead_*
+Rte_IrvWrite_*
+Rte_Mode_*
+Rte type declarations used by those interfaces
+```
+
+External dependencies, not generator outputs:
+
+```text
+SetEvent / GetEvent / WaitEvent / ClearEvent
+GetResource / ReleaseResource
+TcpIp_*
+OS services
+libc and compiler intrinsics
+DDS APIs
+RTI APIs
+```
+
+Scanner 4.1 PASS criterion:
+
+```text
+Given a DdsCdd generated directory, emit a deterministic symbol inventory
+that separates RTE candidates from external dependencies, reports source
+locations, and returns zero scanner errors for the current Phase 3 DdsCdd.
+```
+
+Do not infer RTE APIs from arbitrary substrings. Use C-aware tokenization or a structured parser where practical, and preserve source locations for later unresolved reports.
 
 The fixed architecture is:
 
