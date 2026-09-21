@@ -2214,6 +2214,478 @@ Phase 9.6 - Golden Regression
 
 Phase 9.6 should validate the complete Phase 9 stack, process-memory, snapshot, runtime-monitor, and warning pipeline against the established Virtual AUTOSAR Golden baseline.
 
+## Phase 9.6 - Golden Regression
+
+### Final Status
+
+```text
+PHASE 9.6: COMPLETE
+STATUS: PASS / GOLDEN
+
+PHASE 9: COMPLETE
+STATUS: PASS / GOLDEN
+```
+
+### Objective
+
+Phase 9.6 performs the final end-to-end regression of the Phase 9 memory-monitoring work against the established Linux AUTOSAR Virtual PoC Golden baseline.
+
+No new monitoring feature or AUTOSAR runtime behavior is introduced in this subphase.
+
+The regression covers:
+
+- clean generation and build,
+- Phase 9 source/link integration,
+- generated AUTOSAR static metadata,
+- Virtual AUTOSAR runtime,
+- bidirectional DDS communication,
+- Phase 8 trace decoding,
+- Phase 9 task-stack monitoring,
+- Linux process-memory observation,
+- glibc allocator observation,
+- memory snapshot integration,
+- Phase 9.5 threshold/warning evaluation.
+
+### Phase 9 Components
+
+Permanent Phase 9 C components:
+
+```text
+platform/autosar/StackMonitor.c
+platform/autosar/StackMonitor.h
+
+platform/autosar/ProcessMemoryMonitor.c
+platform/autosar/ProcessMemoryMonitor.h
+
+platform/autosar/MemorySnapshot.c
+platform/autosar/MemorySnapshot.h
+```
+
+Project-owned analysis component:
+
+```text
+tools/runtime_monitor/runtime_monitor.py
+```
+
+### Clean Generation and Build
+
+The project was regenerated and rebuilt from the normal project workflow.
+
+Result:
+
+```text
+[AUTOSAR] Build PASS
+```
+
+Phase 9 linked symbols were confirmed:
+
+```text
+Phase9_MemorySnapshot_WriteJson
+Phase9_ProcessMemory_GetUsage
+Phase9_StackMonitor_GetUsage
+Phase9_StackMonitor_Init
+```
+
+Observed symbol addresses:
+
+```text
+0000000000055513 T Phase9_MemorySnapshot_WriteJson
+0000000000055358 T Phase9_ProcessMemory_GetUsage
+000000000005518c T Phase9_StackMonitor_GetUsage
+00000000000550dd T Phase9_StackMonitor_Init
+```
+
+Python syntax validation also completed successfully.
+
+Result:
+
+```text
+CLEAN GENERATION / BUILD: PASS
+PHASE 9 LINKAGE: PASS
+PYTHON MONITOR SYNTAX: PASS
+```
+
+### Generated Static Metadata
+
+The generated file:
+
+```text
+autosar_virtual/tpl_static_info.json
+```
+
+was inspected.
+
+Its top-level generated metadata categories are:
+
+```text
+alarm
+event
+ioc
+isr
+message
+resource
+task
+```
+
+The task metadata contains the current Golden AUTOSAR tasks, including their generated priorities, resources, events, and stack sizes.
+
+The Phase 9 runtime monitor uses this generated task metadata to map task IDs to task names rather than embedding application-specific task names in the memory snapshot format.
+
+Result:
+
+```text
+GENERATED STATIC METADATA: PASS
+```
+
+### Virtual AUTOSAR Runtime Regression
+
+The Golden runtime was executed through the normal project flow:
+
+```bash
+cd ~/autosar_virtual
+source ./env.sh
+./run.sh
+```
+
+The Virtual AUTOSAR runtime operated normally.
+
+Result:
+
+```text
+VIRTUAL AUTOSAR RUNTIME: PASS
+```
+
+### DDS Communication Regression
+
+Bidirectional DDS communication between the Windows DDS host and the Virtual AUTOSAR runtime was verified.
+
+Architecture under test:
+
+```text
+Windows DDS Host
+       |
+       | UDP / RTPS
+       |
+Virtual AUTOSAR
+192.168.56.105
+```
+
+Results:
+
+```text
+Windows -> Virtual AUTOSAR    PASS
+Virtual AUTOSAR -> Windows    PASS
+DDS / UDP / RTPS              PASS
+```
+
+Phase 9 therefore did not invalidate the Phase 3+ Golden DDS communication baseline.
+
+### Phase 8 Trace Regression
+
+A newly generated runtime trace was decoded with the Phase 8-compatible trace-only CLI.
+
+Observed initial derived records:
+
+```text
+seq=0  ts=0  DERIVED ACTIVATE task=idle
+seq=1  ts=0  DERIVED ACTIVATE task=DdsCddProcessData_Task
+seq=2  ts=0  DERIVED ACTIVATE task=DdsCddReadWrite_Task
+seq=3  ts=0  DERIVED ACTIVATE task=RTI_Task
+seq=4  ts=0  DERIVED ACTIVATE task=TcpIp_Task
+```
+
+Summary:
+
+```text
+raw_records=19113
+derived_records=19113
+parser_warnings=1
+trace_incomplete=yes
+```
+
+The incomplete trace is expected because the runtime was externally terminated with Ctrl+C. This is the established Phase 8 behavior: a truncated JSON trace is incrementally decoded and EOF incompleteness is reported rather than treated as corruption of all preceding records.
+
+Result:
+
+```text
+PHASE 8 TRACE REGRESSION: PASS
+```
+
+### Phase 9 Memory Pipeline Regression
+
+The validated Phase 9 memory snapshot was processed together with the newly generated runtime trace and generated static metadata.
+
+Task-stack observations:
+
+```text
+DdsCddProcessData_Task
+  allocated=32768
+  used=3576
+  free=29192
+  utilization=10.9%
+
+DdsCddReadWrite_Task
+  allocated=32768
+  used=6856
+  free=25912
+  utilization=20.9%
+
+RTI_Task
+  allocated=32768
+  used=7080
+  free=25688
+  utilization=21.6%
+
+App_Task
+  allocated=32768
+  used=4568
+  free=28200
+  utilization=13.9%
+
+DdsCddTimerTick_Task
+  allocated=32768
+  used=3904
+  free=28864
+  utilization=11.9%
+
+TcpIp_Task
+  allocated=32768
+  used=9792
+  free=22976
+  utilization=29.9%
+```
+
+Linux process-memory observation:
+
+```text
+VmRSS  = 3108 kB
+VmHWM  = 3108 kB
+VmSize = 70248 kB
+VmData = 66012 kB
+```
+
+glibc allocator observation:
+
+```text
+arena = 135168 bytes
+used  =   8112 bytes
+free  = 127056 bytes
+mmap  =      0 bytes
+```
+
+Result:
+
+```text
+TASK STACK VIEW: PASS
+PROCESS MEMORY VIEW: PASS
+GLIBC ALLOCATOR VIEW: PASS
+STATIC TASK NAME RESOLUTION: PASS
+```
+
+### Phase 9.5 Threshold Regression
+
+The validated memory snapshot was evaluated with:
+
+```text
+--stack-warn-percent 20
+```
+
+Observed warnings:
+
+```text
+MEMORY_WARNINGS
+  STACK DdsCddReadWrite_Task utilization=20.9% threshold=20.0%
+  STACK RTI_Task utilization=21.6% threshold=20.0%
+  STACK TcpIp_Task utilization=29.9% threshold=20.0%
+```
+
+Exactly the expected three tasks were reported.
+
+Result:
+
+```text
+THRESHOLD / WARNING REGRESSION: PASS
+```
+
+### Snapshot Timing Limitation
+
+The final Golden AUTOSAR task path intentionally does not automatically call:
+
+```text
+Phase9_MemorySnapshot_WriteJson()
+```
+
+The memory snapshot used for the final monitor regression is the previously validated Phase 9.4 runtime-generated snapshot.
+
+Therefore:
+
+- the newly generated `trace.json` belongs to the final Phase 9.6 runtime execution,
+- the memory snapshot belongs to the validated Phase 9.4 memory-capture execution.
+
+This separation is intentional in the current Golden baseline because permanent file I/O was not added to App_Task, RTI_Task, ErrorHook, scheduler hooks, or other AUTOSAR task paths solely for monitoring.
+
+The Phase 9 result demonstrates the measurement/export/analysis capability, but does not claim that every normal Golden runtime invocation automatically produces a new memory snapshot.
+
+### Measurement Semantics
+
+#### AUTOSAR Task Stack
+
+The task-stack metric is:
+
+```text
+Trampoline POSIX AUTOSAR Task Stack High-Water
+```
+
+It includes Trampoline POSIX context/bootstrap and task execution behavior.
+
+It is not claimed to be exact physical MCU stack behavior.
+
+#### Linux Process Memory
+
+```text
+VmRSS
+VmHWM
+VmSize
+VmData
+```
+
+are Linux host-process observations.
+
+They are not physical ECU RAM measurements.
+
+`VmData` is not treated as exact heap usage.
+
+#### glibc Allocator
+
+```text
+arena
+used
+free
+mmap
+```
+
+are glibc allocator statistics.
+
+They are not treated as physical ECU heap usage.
+
+#### Warning Policy
+
+Only task stack currently has a percentage warning model because its allocated stack size provides a meaningful denominator.
+
+Linux process and glibc values remain observation-only because no explicit project memory budget has been defined for them.
+
+### Golden Architecture Preservation
+
+Phase 9 did not replace or modify the fundamental Golden architecture:
+
+```text
+Application / Mock ASWC
+        <->
+Generated Minimal RTE
+        <->
+Generated DDS CDD
+        <->
+RTI AUTOSAR PSL
+        <->
+RTI DDS Micro PIL
+        <->
+Virtual AUTOSAR TcpIp
+        <->
+Trampoline POSIX AUTOSAR OS
+        <->
+Linux / ViPER
+```
+
+Phase 9 did not change:
+
+- AUTOSAR task priorities,
+- normal task activation semantics,
+- DDS transport,
+- UDP/RTPS behavior,
+- TcpIp polling architecture,
+- RTE semantics,
+- DDS CDD semantics,
+- production DDS resources,
+- ErrorHook boundedness,
+- Phase 8 trace format,
+- Trampoline scheduler behavior.
+
+The existing Trampoline POSIX 1 ms timer modification remains a pre-existing Golden dependency and is not a Phase 9 change.
+
+### Phase 9 Final Capability Matrix
+
+| Capability | Result |
+|-----------|--------|
+| Task stack allocation discovery | PASS |
+| Task stack size discovery | PASS |
+| Task stack boundary access | PASS |
+| Task stack high-water measurement | PASS |
+| All six Golden tasks measurable | PASS |
+| Linux VmRSS observation | PASS |
+| Linux VmHWM observation | PASS |
+| Linux VmSize observation | PASS |
+| Linux VmData observation | PASS |
+| glibc allocator observation | PASS |
+| JSON memory snapshot export | PASS |
+| Snapshot validation | PASS |
+| Generated task ID/name mapping | PASS |
+| Runtime monitor memory integration | PASS |
+| Stack utilization derivation | PASS |
+| Explicit stack warning policy | PASS |
+| Warning input validation | PASS |
+| Phase 8 trace compatibility | PASS |
+| Golden AUTOSAR runtime | PASS |
+| Windows -> Virtual DDS | PASS |
+| Virtual -> Windows DDS | PASS |
+| Clean build/linkage | PASS |
+
+### Phase 9 Subphase Status
+
+```text
+Phase 9.1  Memory Monitoring Capability Investigation  PASS
+Phase 9.2  Task Stack Monitoring                      PASS
+Phase 9.3  Process Heap / Memory Monitoring           PASS
+Phase 9.4  Runtime Monitor Integration                PASS
+Phase 9.5  Threshold / Warning Model                  PASS
+Phase 9.6  Golden Regression                          PASS
+```
+
+### Final Result
+
+```text
+PHASE 9: COMPLETE
+
+STATUS: PASS / GOLDEN
+```
+
+Phase 9 establishes a bounded memory-observation capability for the Linux AUTOSAR Virtual PoC while explicitly preserving the distinction between AUTOSAR logical/runtime measurements and Linux host-process measurements.
+
+The Golden baseline now provides:
+
+```text
+AUTOSAR OS runtime behavior
+DDS communication
+AUTOSAR trace decoding
+task scheduling/resource/event observation
+task stack high-water observation
+Linux process-memory observation
+glibc allocator observation
+memory snapshot validation
+stack utilization and explicit warning policy
+```
+
+without converting Linux host measurements into unsupported physical ECU memory claims.
+
+### Next Phase
+
+The authoritative roadmap continues with:
+
+```text
+Phase 10 - Stress / Fault Injection
+```
+
+Phase 10 should build on the Phase 7 robustness, Phase 8 runtime trace, and Phase 9 memory observation baselines to introduce controlled stress and fault scenarios while preserving reproducibility and explicit PASS/FAIL evidence.
+
 ## Final Phase 9 status
 
 ```text
@@ -2222,7 +2694,8 @@ PHASE 9.2: COMPLETE / PASS
 PHASE 9.3: COMPLETE / PASS
 PHASE 9.4: COMPLETE / PASS
 PHASE 9.5: COMPLETE / PASS
-PHASE 9: IN PROGRESS
+PHASE 9.6: COMPLETE / PASS
+PHASE 9: COMPLETE / PASS / GOLDEN
 ```
 
 Prefer measurements that are:
