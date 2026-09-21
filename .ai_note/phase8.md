@@ -14,9 +14,9 @@ Phase 7  OS robustness / Error / Resource                PASS
 Phase 8  AUTOSAR Trace / Runtime Monitor                 ACTIVE
 ```
 
-Phase 8 is active. Phase 8.1, Phase 8.2, and Phase 8.3 have completed and
-passed. No project-owned runtime tracing source or custom trace format has
-been added.
+Phase 8 is active. Phase 8.1 through Phase 8.5 have completed and passed. A
+project-owned read-only runtime monitor now exists; no custom trace format or
+runtime instrumentation has been added.
 
 ## Objective
 
@@ -598,6 +598,205 @@ No event should be invented until its Trampoline source path and emitted
 representation are established. Monitor-derived states must remain distinct
 from kernel-reported events.
 
+## Phase 8.4 - Resource, Event, and Alarm Observation
+
+### Status
+
+```text
+PHASE 8.4: COMPLETE
+STATUS: PASS
+```
+
+Phase 8.4 validated the existing Trampoline POSIX trace representation of
+alarms, resources, and events using the normal Golden runtime. No temporary
+task, alarm, event, resource, scheduler mechanism, or Trampoline modification
+was required.
+
+Alarm expiration is represented as `timeobj_expire`. Observed periods matched
+the configured cycles: `AppAlarm` and `DdsCddReadWriteAlarm` at 1000 ticks,
+`DdsCddTimerTickAlarm` at 10 ticks, and `TcpIp_5ms_Alarm` at 5 ticks. The
+captured trace contained 408 timer-tick expirations with 407 ten-tick deltas
+and 816 TcpIp expirations with 815 five-tick deltas.
+
+Resource records contain `type = resource`, `res_id`, and `target_state`.
+`RESOURCE_FREE = 0` and `RESOURCE_TAKEN = 1`. The analyzed mapping was:
+
+```text
+1  OsResource_DdsTimer
+2  OsResource_DdsMain
+3  OsResource_DdsNetio
+```
+
+`OsResource_DdsTimer` was balanced: 2463 `TAKEN` and 2463 `FREE`, with no
+`FREE` without a preceding `TAKEN`. The one unmatched `OsResource_DdsMain`
+acquisition occurred because external termination ended the trace inside
+`DdsCddReadWrite_Task`'s critical section. This is `INCOMPLETE_AT_EOF`, not
+evidence of `RESOURCE_LEAK`.
+
+Event operations for `DdsCddReadWrite_Task` were balanced:
+
+```text
+mask=1  SET 408  RESET 408
+mask=2  SET   4  RESET   4
+```
+
+The observed wakeup sequence was:
+
+```text
+SET_EVENT target=DdsCddReadWrite_Task mask=1
+DdsCddReadWrite_Task -> READY -> RUNNING
+RESET_EVENT mask=1
+DdsCddReadWrite_Task -> WAITING
+```
+
+`RESET_EVENT` has no target task ID, so its task association is derived from
+ordered running-task context. At timestamp 10, the trace preserved the full
+alarm -> task activation -> resource -> event -> wakeup -> waiting chain. More
+than twenty transitions shared that timestamp, proving that timestamp alone
+cannot represent execution order.
+
+The monitor must preserve both the timestamp and original record sequence. Raw
+records remain authoritative; derived state may include the running task,
+resource ownership context, event wakeup context, and alarm-to-activation
+correlation. Truncated JSON, a partial final record, open resources, a running
+task at EOF, and incomplete event/resource chains must not automatically be
+classified as AUTOSAR runtime errors.
+
+Phase 8.4 required no temporary runtime modification and did not change DDS
+transport, TcpIp polling, production task priorities or resources, generated
+RTE/CDD behavior, or Trampoline source.
+
+## Phase 8.5 - Minimal Runtime Monitor / Decoder
+
+### Status
+
+```text
+PHASE 8.5: COMPLETE
+STATUS: PASS
+```
+
+Phase 8.5 established a project-owned, read-only runtime monitor for the
+Trampoline POSIX trace. The observation path is:
+
+```text
+trace.json + tpl_static_info.json
+        |
+        v
+tools/runtime_monitor/runtime_monitor.py
+        |
+        +-- normalized RAW records
+        +-- DERIVED runtime records
+        +-- parser and EOF diagnostics
+```
+
+The monitor does not participate in task scheduling, activation, resource
+management, event handling, alarm processing, RTE execution, DDS transport, or
+generated CDD behavior.
+
+### Input and Normalization
+
+The monitor consumes the existing runtime types:
+
+```text
+proc
+resource
+timeobj
+timeobj_expire
+set_event
+reset_event
+```
+
+Numeric JSON strings such as `"10"` are normalized to integers without adding
+semantic meaning. Generated static metadata resolves task, resource, alarm,
+and event names. Task IDs use the generated task array, with the configured
+idle pseudo-process resolved after that array.
+
+Event resolution uses `(target_task_id, event_mask)` because event masks are
+not globally unique. This distinguishes task-specific events such as
+`DdsCddTimerUpdateEvent`, `DdsCddPeriodicReadEvent`, `RTI_GiveEvent`, and
+`RTI_TimeoutEvent`.
+
+### Incremental Parsing and Ordering
+
+The parser processes individual trace objects incrementally rather than
+requiring a complete JSON document. Each decoded record receives a monotonic
+sequence number preserving original trace order. Runtime ordering is therefore:
+
+```text
+(timestamp, original sequence)
+```
+
+Complete records before a truncated final object are preserved. A partial final
+object is reported as `INCOMPLETE_RECORD_AT_EOF`; a malformed complete object
+is reported as `MALFORMED_RECORD`; truncated JSON does not crash the monitor.
+
+### Derived Runtime Semantics
+
+The monitor retains raw records and derives lifecycle events from ordered state
+history:
+
+```text
+READY_AND_NEW              -> ACTIVATE
+READY_AND_NEW -> RUNNING   -> DISPATCH_NEW
+RUNNING -> READY           -> PREEMPT
+RUNNING -> WAITING         -> WAIT
+WAITING -> READY           -> WAKEUP
+WAITING -> READY -> RUNNING -> WAKEUP_DISPATCH
+RUNNING -> SUSPENDED       -> TERMINATE
+preempted READY -> RUNNING  -> RESUME
+```
+
+`READY -> RUNNING` is not blindly labeled `RESUME`; the reason for entering
+`READY` is retained so wakeup dispatch and preemption resumption remain distinct.
+
+Resource ownership is derived from the currently running task at the exact
+trace sequence of each resource transition. Nested resource operations remain
+visible. `set_event` directly resolves its target task and task-specific event;
+`reset_event` has no task ID and is associated with the running task as derived
+context. Alarm expiration is resolved to alarm name, configured action, and
+target from static metadata.
+
+### EOF and Pipeline Behavior
+
+An open resource at EOF is not automatically a leak:
+
+```text
+open resource + incomplete trace = INCOMPLETE_AT_EOF
+```
+
+A Golden validation run terminated externally produced:
+
+```text
+raw_records=19803
+derived_records=19803
+parser_warnings=1
+trace_incomplete=yes
+```
+
+The final open DDS resources were reported as incomplete observation at the
+trace boundary. SIGPIPE handling also allows normal pipelines using `head`
+without Python `BrokenPipeError` output; the validated pipeline exit was 0.
+
+### Golden Validation and Scope
+
+The final monitor validation reproduced the representative ordered chain:
+
+```text
+Alarm -> Activation -> Preemption -> Dispatch -> Resource
+    -> Event Set -> Wakeup -> Event Reset -> Resource -> Wait -> Resume
+```
+
+The monitor is contained in:
+
+```text
+tools/runtime_monitor/runtime_monitor.py
+```
+
+No GUI, Perfetto integration, live instrumentation, scheduler modification,
+DDS architecture change, generated RTE change, or Trampoline source change was
+required. The Trampoline submodule remains separate from this project-owned
+monitor implementation.
+
 ## Phase 8.1 PASS Criteria
 
 Phase 8.1 passes only when the actual checked-out implementation documents:
@@ -625,6 +824,8 @@ PHASE 8: ACTIVE
 PHASE 8.1: COMPLETE
 PHASE 8.2: COMPLETE
 PHASE 8.3: COMPLETE
+PHASE 8.4: COMPLETE
+PHASE 8.5: COMPLETE
 STATUS: PASS
 ```
 
@@ -635,9 +836,14 @@ established a 31 MB Golden workload baseline with 411,287 timestamped records,
 all required trace categories, and distinguishable Basic/Extended Task
 lifecycle behavior. Phase 8.3 established context-sensitive lifecycle rules
 for activation, dispatch, waiting, wakeup, preemption, resumption, and
-termination while preserving equal-timestamp record order. The next Phase 8
-experiment is a project-owned capture/normalization or decoder layer for the
-existing `trace.json` output. The POSIX JSON schema mismatch and
-external-termination truncation behavior remain documented limitations.
+termination while preserving equal-timestamp record order. Phase 8.4
+established alarm-cycle correlation, balanced
+resource and event operations, cross-object ordering, and the
+`INCOMPLETE_AT_EOF` rule for externally terminated captures. Phase 8.5 added a
+read-only project-owned monitor that incrementally parses, normalizes, and
+derives runtime records while preserving raw trace order. The next step is
+Phase 8.6 Golden runtime regression and the Phase 8 baseline. The POSIX JSON
+schema mismatch and external-termination truncation behavior remain documented
+limitations.
 
 Phase 9 and later work remain out of scope.
