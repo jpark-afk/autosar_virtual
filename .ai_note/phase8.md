@@ -797,6 +797,141 @@ DDS architecture change, generated RTE change, or Trampoline source change was
 required. The Trampoline submodule remains separate from this project-owned
 monitor implementation.
 
+## Phase 8.6 - Golden Runtime Regression and Phase 8 Baseline
+
+### Final Status
+
+```text
+PHASE 8.6: COMPLETE
+STATUS: PASS
+
+PHASE 8: COMPLETE
+STATUS: PASS / GOLDEN
+```
+
+Phase 8.6 performed the final regression, reproducibility, repository-integrity,
+and cleanup validation required to freeze the Phase 8 AUTOSAR Trace / Runtime
+Monitor implementation. No new runtime functionality was introduced.
+
+### Regression Results
+
+```text
+8.6.1 Repository / generated baseline integrity  PASS
+8.6.2 Clean regeneration / build reproducibility PASS
+8.6.3 Runtime and DDS Golden regression         PASS
+8.6.4 Golden baseline freeze / cleanup           PASS
+```
+
+The final repository inspection confirmed:
+
+```text
+Phase 8 temporary test code       NONE
+Generated AUTOSAR modifications   NONE
+Trampoline trace modifications    NONE
+```
+
+The permanent project-owned implementation is:
+
+```text
+tools/runtime_monitor/runtime_monitor.py
+```
+
+No temporary Phase 8 task, resource, fault-injection, or preemption-test
+artifact remains. The generated AUTOSAR tree is clean.
+
+### Trampoline Integrity
+
+The Trampoline submodule retains one known pre-existing platform modification:
+
+```text
+machines/posix/tpl_machine_posix.c
+tpl_viper_start_auto_timer(signal_for_counters, 10000)
+        -> tpl_viper_start_auto_timer(signal_for_counters, 1000)
+```
+
+This changes the POSIX ViPER automatic timer from 10 ms to 1 ms and was not
+introduced by Phase 8. The current Golden timing model depends on it. Phase 8
+did not modify the Trampoline trace implementation. For future reproducibility,
+the dependency should be represented through project-owned configuration or an
+explicitly managed project patch if configuration is unsupported.
+
+### Regeneration, Build, and Runtime Regression
+
+The project was regenerated from source configuration and rebuilt from a clean
+state:
+
+```text
+Generation    PASS
+Clean build   PASS
+BUILD_EXIT=0
+[100%] Built target autosar_virtual
+```
+
+The existing communication architecture remained unchanged:
+
+```text
+Windows DDS Host <-> Virtual AUTOSAR TcpIp
+                                 <-> Trampoline POSIX AUTOSAR OS
+                                 <-> RTI AUTOSAR PSL / PIL
+                                 <-> Generated DDS CDD / Minimal RTE
+```
+
+Bidirectional DDS regression passed:
+
+```text
+Windows DDS Host -> Virtual AUTOSAR    PASS
+Virtual AUTOSAR -> Windows DDS Host    PASS
+```
+
+No change was required to DDS transport or sockets, TcpIp polling, task
+priorities, production resources, generated RTE semantics, or scheduling
+semantics.
+
+### Monitor Regression
+
+A new Golden trace was processed successfully:
+
+```text
+raw_records       = 20230
+derived_records   = 20230
+parser_warnings   = 1
+trace_incomplete  = yes
+```
+
+The warning was caused by external termination and was correctly handled as an
+incomplete trace boundary. The monitor reproduced the expected logical chain:
+
+```text
+Alarm -> Activation -> Preemption -> Dispatch -> Resource
+        -> Event Set -> Wakeup -> Event Reset -> Resource -> Wait -> Resume
+```
+
+The final open `OsResource_DdsMain` owned by `DdsCddReadWrite_Task` was
+reported as `INCOMPLETE_AT_EOF`, not as a resource leak.
+
+### Final Architecture and Acceptance
+
+```text
+Trampoline kernel -> existing TRACE hooks -> trace.json
+                                                                          +
+                                                          tpl_static_info.json
+                                                                          |
+                                                                          v
+                                                 project runtime monitor
+                                                 RAW + DERIVED + diagnostics
+```
+
+The monitor remains read-only with respect to the runtime. It does not perform
+task activation or dispatch, resource locking, event signaling, alarm
+processing, DDS communication, or RTE execution. Those remain owned by the
+existing Virtual AUTOSAR implementation.
+
+Phase 8 acceptance passed for trace reuse, clean regeneration/build, runtime
+execution, bidirectional DDS, task lifecycle, preemption/resumption, resources,
+events, alarms, cross-object correlation, truncated trace tolerance, EOF
+diagnostics, project-owned monitor ownership, and preservation of Golden
+scheduling and DDS semantics.
+
 ## Phase 8.1 PASS Criteria
 
 Phase 8.1 passes only when the actual checked-out implementation documents:
@@ -820,13 +955,14 @@ recorded as a limitation rather than synthesized by application code.
 ## Current Conclusion
 
 ```text
-PHASE 8: ACTIVE
+PHASE 8: COMPLETE
 PHASE 8.1: COMPLETE
 PHASE 8.2: COMPLETE
 PHASE 8.3: COMPLETE
 PHASE 8.4: COMPLETE
 PHASE 8.5: COMPLETE
-STATUS: PASS
+PHASE 8.6: COMPLETE
+STATUS: PASS / GOLDEN
 ```
 
 The existing Trampoline POSIX trace path is operational. It generates
@@ -837,13 +973,17 @@ all required trace categories, and distinguishable Basic/Extended Task
 lifecycle behavior. Phase 8.3 established context-sensitive lifecycle rules
 for activation, dispatch, waiting, wakeup, preemption, resumption, and
 termination while preserving equal-timestamp record order. Phase 8.4
-established alarm-cycle correlation, balanced
-resource and event operations, cross-object ordering, and the
-`INCOMPLETE_AT_EOF` rule for externally terminated captures. Phase 8.5 added a
-read-only project-owned monitor that incrementally parses, normalizes, and
-derives runtime records while preserving raw trace order. The next step is
-Phase 8.6 Golden runtime regression and the Phase 8 baseline. The POSIX JSON
-schema mismatch and external-termination truncation behavior remain documented
-limitations.
+established alarm-cycle correlation, balanced resource and event operations,
+cross-object ordering, and the `INCOMPLETE_AT_EOF` rule for externally
+terminated captures. Phase 8.5 added a read-only project-owned monitor that
+incrementally parses, normalizes, and derives runtime records while preserving
+raw trace order. Phase 8.6 passed clean regeneration/build, runtime and
+bidirectional DDS regression, monitor regression, repository cleanup, and
+Golden baseline freeze.
 
-Phase 9 and later work remain out of scope.
+```text
+PHASE 8: COMPLETE
+STATUS: PASS / GOLDEN
+```
+
+The next roadmap item is Phase 9 - Stack / Heap / Memory Monitoring.
