@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -12,6 +11,7 @@
 #include "TcpIp.h"
 
 #include "Rte_DdsCddType.h"
+#include "VirtualAswc.h"
 
 /*
  * Phase 7.2 - Minimal OS error observation.
@@ -248,45 +248,9 @@ TASK(TcpIp_Task)
     TerminateTask();
 }
 
-/* ASWC Runnable and TASK */
-static void MockAswc_Run(void)
-{
-    static uint8 counter = 0U;
-    GCS_LEFT_2_PDIO_FL_t gcs_data;
-    Cabin_Door_PDIO_FL_t cabin_door_data;
-
-    memset(&gcs_data, 0, sizeof(gcs_data));
-    memset(&cabin_door_data, 0, sizeof(cabin_door_data));
-
-    /*
-     * ASWC R-Port:
-     * DATA-RECEIVE-POINT-BY-ARGUMENTS
-     *
-     * Periodically poll the latest value provided by DdsCdd.
-     */
-    if (Rte_Read_R_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
-            &gcs_data) == E_OK)
-    {
-        /*
-         * Mock application processing.
-         */
-    }
-
-    /*
-     * ASWC P-Port:
-     * DATA-SEND-POINTS
-     */
-    memset(&cabin_door_data, 0, sizeof(cabin_door_data));
-
-    cabin_door_data.PDIO_FL_Driver_Door_Switch_State = counter++;
-
-    (void)Rte_Write_S_Cabin_Door_PDIO_FL_Cabin_Door_PDIO_FL_t(
-        &cabin_door_data);
-}
-
 TASK(App_Task)
 {
-    MockAswc_Run();
+    VirtualAswc_Run();
 
     TerminateTask();
 }

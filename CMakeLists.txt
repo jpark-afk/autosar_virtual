@@ -86,6 +86,9 @@ add_executable(autosar_virtual
     # Generated CDD task implementation
     ${CMAKE_SOURCE_DIR}/platform/autosar/DdsCdd_Task.c
 
+    # Generated Virtual ASWC test runnable
+    ${CMAKE_SOURCE_DIR}/platform/autosar/VirtualAswc.c
+
     # DDS CDD - AUTOSAR generated runnable
     ${DDS_CDD_ROOT}/autosar_gen/DdsCdd.c
 

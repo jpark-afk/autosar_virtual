@@ -1255,6 +1255,70 @@ def generate_rte_ddscdd_type_source(
     return "\n".join(lines)
 
 
+def generate_virtual_aswc_header() -> str:
+    """Generate the Virtual ASWC runnable interface."""
+
+    return "\n".join([
+        "#ifndef VIRTUAL_ASWC_H",
+        "#define VIRTUAL_ASWC_H",
+        "",
+        "void VirtualAswc_Run(void);",
+        "",
+        "#endif /* VIRTUAL_ASWC_H */",
+        "",
+    ])
+
+
+def generate_virtual_aswc_source(
+        aswc_reads: list,
+        aswc_writes: list,
+) -> str:
+    """Generate a type-safe default Virtual ASWC test runnable."""
+
+    lines = [
+        '#include <string.h>',
+        "",
+        '#include "VirtualAswc.h"',
+        '#include "Rte_DdsCddType.h"',
+        "",
+        "void VirtualAswc_Run(void)",
+        "{",
+    ]
+
+    if aswc_writes:
+        lines.append("    static uint8 counter = 0U;")
+        lines.append("")
+
+    for index, entry in enumerate(aswc_reads):
+        variable_name = f"read_data_{index}"
+
+        lines.extend([
+            f'    {entry["data_element"]} {variable_name};',
+            "",
+            f'    (void){entry["symbol"]}(&{variable_name});',
+            "",
+        ])
+
+    for index, entry in enumerate(aswc_writes):
+        variable_name = f"write_data_{index}"
+
+        lines.extend([
+            f'    {entry["data_element"]} {variable_name};',
+            "",
+            f'    memset(&{variable_name}, 0, sizeof({variable_name}));',
+            f'    ((uint8 *)&{variable_name})[0] = counter++;',
+            f'    (void){entry["symbol"]}(&{variable_name});',
+            "",
+        ])
+
+    lines.extend([
+        "}",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
 def generate_ddscdd_task_source(
     data_received: list,
     timing: list,
@@ -2123,6 +2187,12 @@ def main() -> None:
         psl_rxindication_callback,
     )
 
+    virtual_aswc_header = generate_virtual_aswc_header()
+    virtual_aswc_source = generate_virtual_aswc_source(
+        aswc_receive_points,
+        aswc_send_points,
+    )
+
     print("\n===== CDD INIT EVENTS =====")
 
     for event in init_events:
@@ -2218,6 +2288,24 @@ def main() -> None:
 
         generated_ddscdd_task_source.write_text(
             ddscdd_task_source,
+            encoding="utf-8",
+        )
+
+        generated_virtual_aswc_header = (
+            args.rte_output_dir / "VirtualAswc.h"
+        )
+
+        generated_virtual_aswc_header.write_text(
+            virtual_aswc_header,
+            encoding="utf-8",
+        )
+
+        generated_virtual_aswc_source = (
+            args.rte_output_dir / "VirtualAswc.c"
+        )
+
+        generated_virtual_aswc_source.write_text(
+            virtual_aswc_source,
             encoding="utf-8",
         )
 
