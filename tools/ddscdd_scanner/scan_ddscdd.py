@@ -1254,6 +1254,192 @@ def generate_rte_ddscdd_type_source(
 
     return "\n".join(lines)
 
+
+def generate_ddscdd_task_source(
+    data_received: list,
+    timing: list,
+    internal_trigger: list,
+) -> str:
+    """
+    Generate CDD-specific AUTOSAR task implementations.
+
+    The Virtual AUTOSAR OS topology is fixed. This generator only maps
+    CDD semantic events/runnables onto that fixed task model.
+    """
+
+    timer_update = next(
+        (
+            entry
+            for entry in internal_trigger
+            if entry["target_runnable"] == "TimerUpdate"
+        ),
+        None,
+    )
+
+    process_data = next(
+        (
+            entry
+            for entry in internal_trigger
+            if entry["target_runnable"] == "ProcessData"
+        ),
+        None,
+    )
+
+    timer_tick = next(
+        (
+            entry
+            for entry in timing
+            if entry["arxml_runnable"] == "TimerTick"
+        ),
+        None,
+    )
+
+    if timer_update is None:
+        raise SystemExit(
+            "ERROR: fixed Virtual AUTOSAR model requires "
+            "InternalTrigger target TimerUpdate"
+        )
+
+    if process_data is None:
+        raise SystemExit(
+            "ERROR: fixed Virtual AUTOSAR model requires "
+            "InternalTrigger target ProcessData"
+        )
+
+    if timer_tick is None:
+        raise SystemExit(
+            "ERROR: fixed Virtual AUTOSAR model requires "
+            "TimerTick TimingEvent"
+        )
+
+    periodic_runnables = [
+        entry
+        for entry in timing
+        if entry["arxml_runnable"] != "TimerTick"
+    ]
+
+    declarations = {
+        timer_tick["c_runnable"],
+        timer_update["target_c_runnable"],
+        process_data["target_c_runnable"],
+    }
+
+    declarations.update(
+        entry["c_runnable"]
+        for entry in data_received
+    )
+
+    declarations.update(
+        entry["c_runnable"]
+        for entry in periodic_runnables
+    )
+
+    lines = [
+        '#include "tpl_os.h"',
+        '#include "Rte_DdsCddType.h"',
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD runnable declarations",
+        " * -------------------------------------------------------------------------- */",
+        "",
+    ]
+
+    for runnable in sorted(declarations):
+        lines.append(f"extern void {runnable}(void);")
+
+    lines.extend([
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD TimerTick task",
+        " * -------------------------------------------------------------------------- */",
+        "",
+        "TASK(DdsCddTimerTick_Task)",
+        "{",
+        f'    {timer_tick["c_runnable"]}();',
+        "",
+        "    TerminateTask();",
+        "}",
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD Read/Write task",
+        " * -------------------------------------------------------------------------- */",
+        "",
+        "TASK(DdsCddReadWrite_Task)",
+        "{",
+        "    EventMaskType events;",
+        "",
+        "    for (;;)",
+        "    {",
+        "        WaitEvent(",
+        "            DdsCddTimerUpdateEvent |",
+        "            DdsCddPeriodicReadEvent);",
+        "",
+        "        GetEvent(DdsCddReadWrite_Task, &events);",
+        "",
+        "        if ((events & DdsCddTimerUpdateEvent) != 0U)",
+        "        {",
+        "            ClearEvent(DdsCddTimerUpdateEvent);",
+        "",
+        f'            {timer_update["target_c_runnable"]}();',
+        "        }",
+        "",
+        "        if ((events & DdsCddPeriodicReadEvent) != 0U)",
+        "        {",
+        "            ClearEvent(DdsCddPeriodicReadEvent);",
+        "",
+    ])
+
+    for entry in data_received:
+        port_name = entry["r_port"]
+
+        if port_name.startswith("R_"):
+            port_name = port_name[2:]
+
+        lines.extend([
+            f"            if (Rte_ConsumeDataReceived_{port_name}() != FALSE)",
+            "            {",
+            f'                {entry["c_runnable"]}();',
+            "            }",
+            "",
+        ])
+
+    for entry in periodic_runnables:
+        lines.append(
+            f'            {entry["c_runnable"]}();'
+        )
+
+    lines.extend([
+        "        }",
+        "    }",
+        "}",
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD ProcessData task",
+        " * -------------------------------------------------------------------------- */",
+        "",
+        "TASK(DdsCddProcessData_Task)",
+        "{",
+        "    EventMaskType events;",
+        "",
+        "    for (;;)",
+        "    {",
+        "        WaitEvent(DdsCddProcessDataEvent);",
+        "",
+        "        GetEvent(DdsCddProcessData_Task, &events);",
+        "",
+        "        if ((events & DdsCddProcessDataEvent) != 0U)",
+        "        {",
+        "            ClearEvent(DdsCddProcessDataEvent);",
+        "",
+        f'            {process_data["target_c_runnable"]}();',
+        "        }",
+        "    }",
+        "}",
+        "",
+    ])
+
+    return "\n".join(lines)
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Scan generated DdsCdd sources for RTE dependencies."
@@ -1918,6 +2104,12 @@ def main() -> None:
         internal_trigger_model,
     )
 
+    ddscdd_task_source = generate_ddscdd_task_source(
+        data_received_model,
+        timing_model,
+        internal_trigger_model,
+    )
+
     print("===== GENERATED RTE SOURCE =====")
     print(rte_ddscdd_type_source)
     
@@ -2017,6 +2209,15 @@ def main() -> None:
 
         generated_rte_ddscdd_source.write_text(
             rte_ddscdd_type_source,
+            encoding="utf-8",
+        )
+
+        generated_ddscdd_task_source = (
+            args.rte_output_dir / "DdsCdd_Task.c"
+        )
+
+        generated_ddscdd_task_source.write_text(
+            ddscdd_task_source,
             encoding="utf-8",
         )
 

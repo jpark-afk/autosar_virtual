@@ -13,18 +13,11 @@
 
 #include "Rte_DdsCddType.h"
 
-extern void DdsCddTimerTick(void);
-extern void DdsCddTimerUpdate(void);
-
-extern void DdsCddRead_GCS_LEFT_2_PDIO_FL(void);
-extern void DdsCddProcessData(void);
 extern void DdsCdd_Init(void);
 extern void DdsCddStart(void);
 extern void DdsCdd_LocalIpAddrAssignmentChg(
     TcpIp_LocalAddrIdType LocalAddrId,
     TcpIp_IpAddrStateType State);
-
-extern void DdsCddWrite_Cabin_Door_PDIO_FL(void);
 
 static int TcpIp_TestSocket = -1;
 
@@ -226,20 +219,6 @@ TASK(TcpIp_Task)
     TerminateTask();
 }
 
-/*
- * DdsCddTimerTick()
- * -> InternalTrigger
- * -> DdsCddTimerUpdateEvent
- * -> DdsCddReadWrite_Task
- * -> DdsCddTimerUpdate()
- */
-TASK(DdsCddTimerTick_Task)
-{
-    DdsCddTimerTick();
-
-    TerminateTask();
-}
-
 /* ASWC Runnable and TASK */
 static void MockAswc_Run(void)
 {
@@ -281,68 +260,5 @@ TASK(App_Task)
     MockAswc_Run();
 
     TerminateTask();
-}
-
-TASK(DdsCddReadWrite_Task)
-{
-    EventMaskType events;
-
-    for (;;)
-    {
-        WaitEvent(
-            DdsCddTimerUpdateEvent |
-            DdsCddPeriodicReadEvent);
-
-        GetEvent(DdsCddReadWrite_Task, &events);
-
-        if ((events & DdsCddTimerUpdateEvent) != 0U)
-        {
-            ClearEvent(DdsCddTimerUpdateEvent);
-
-            DdsCddTimerUpdate();
-        }
-
-        if ((events & DdsCddPeriodicReadEvent) != 0U)
-        {
-            ClearEvent(DdsCddPeriodicReadEvent);
-
-            TcpIp_Log("[Rte] DdsCddReadWrite_Task PERIODIC");            
-
-            /*
-            * Emulate DdsCdd DataReceivedEvent:
-            *
-            * R_Cabin_Door_PDIO_FL
-            *   -> Write_Cabin_Door_PDIO_FL
-            */
-            if (Rte_ConsumeDataReceived_Cabin_Door_PDIO_FL() != FALSE)
-            {
-                DdsCddWrite_Cabin_Door_PDIO_FL();
-            }
-
-            /*
-            * DdsCdd TimingEvent runnable.
-            */
-            DdsCddRead_GCS_LEFT_2_PDIO_FL();
-        }
-    }
-}
-
-TASK(DdsCddProcessData_Task)
-{
-    EventMaskType events;
-
-    for (;;)
-    {
-        WaitEvent(DdsCddProcessDataEvent);
-
-        GetEvent(DdsCddProcessData_Task, &events);
-
-        if ((events & DdsCddProcessDataEvent) != 0U)
-        {
-            ClearEvent(DdsCddProcessDataEvent);
-
-            DdsCddProcessData();
-        }
-    }
 }
 
