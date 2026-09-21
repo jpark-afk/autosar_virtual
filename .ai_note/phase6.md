@@ -72,6 +72,14 @@ Therefore, creating another ASWC-side RTE abstraction was not considered necessa
 
 The practical reusable gap was the manual CDD Task implementation.
 
+The completed CDD Task generation exposed one remaining manual dependency:
+
+* `MockAswc_Run()` in `config/os/task_impl.c` declared generated endpoint types,
+  called generated RTE APIs, and wrote an example-specific payload field.
+
+This was a test-harness dependency, not a reason to change the CDD scheduler or
+fixed OIL topology.
+
 ---
 
 ## Before Phase 6
@@ -202,6 +210,8 @@ platform/autosar/Rte_Type.h
 platform/autosar/Rte_DdsCddType.h
 platform/autosar/Rte_DdsCddType.c
 platform/autosar/DdsCdd_Task.c
+platform/autosar/VirtualAswc.h
+platform/autosar/VirtualAswc.c
 ```
 
 The semantic intermediate model remains the central generator representation.
@@ -264,6 +274,13 @@ App_Task
 
 CDD-specific Tasks are no longer implemented there.
 
+`App_Task` remains a fixed OIL Task activated by the existing `AppAlarm`. It now
+calls the generated `VirtualAswc_Run()` entry point only.
+
+The existing `DdsCddPeriodicReadEvent` and `DdsCddReadWrite_Task` remain the
+fixed CDD-side dispatch path. The Virtual ASWC does not create Tasks, Events,
+Alarms, or new scheduling behavior.
+
 ---
 
 ## Generic Task Separation
@@ -315,6 +332,37 @@ Dynamic timing or general scheduling generation is not part of Phase 6.
 
 ---
 
+## Virtual ASWC Follow-up
+
+The generator now emits a minimal ASWC-side test runnable:
+
+```text
+platform/autosar/VirtualAswc.h
+platform/autosar/VirtualAswc.c
+```
+
+`VirtualAswc.c` is derived from the discovered ASWC R-Port and P-Port access
+model. It generates local typed data variables and the corresponding
+`Rte_Read_*` and `Rte_Write_*` calls.
+
+The generated default write stimulus is intentionally generic:
+
+```text
+zero-initialize endpoint value
+    -> increment the first byte
+    -> Rte_Write_*
+```
+
+This removes generated datatype names, RTE API names, and application field
+names from `config/os/task_impl.c`.
+
+Application-specific test semantics remain outside the generator. For example,
+field-level stimulus, expected payloads, and receive assertions require an
+explicit test scenario because they cannot be inferred safely from CDD endpoint
+metadata alone.
+
+---
+
 ## Protected Architecture
 
 The following remain unchanged:
@@ -363,6 +411,8 @@ platform/autosar/Rte_Type.h
 platform/autosar/Rte_DdsCddType.h
 platform/autosar/Rte_DdsCddType.c
 platform/autosar/DdsCdd_Task.c
+platform/autosar/VirtualAswc.h
+platform/autosar/VirtualAswc.c
 ```
 
 ### Build
@@ -377,6 +427,20 @@ Compilation
 Link
     PASS
 ```
+
+The generated `VirtualAswc.c` compiled and linked into `autosar_virtual`.
+
+### Virtual ASWC Runtime Smoke Test
+
+```text
+DdsCdd_Init / StartOS                         PASS
+Trampoline, TcpIp, RTI, and DDS startup       PASS
+Generated VirtualAswc compile/link boundary   PASS
+```
+
+A bounded local run exited after existing UDP/NETIO diagnostics without an
+external DDS peer. It is not recorded as a replacement for the Windows/Linux
+Golden E2E regression.
 
 ### DDS Golden Regression
 
@@ -430,6 +494,7 @@ Run generate.sh
         +--> scan CDD
         +--> generate RTE
         +--> generate CDD Tasks
+        +--> generate Virtual ASWC skeleton
         +--> generate Trampoline OS
         |
         v
@@ -467,8 +532,11 @@ Phase 6 does not provide:
 Phase 4 Golden baseline preserved             PASS
 CDD-specific Task generation                  PASS
 DdsCdd_Task.c generated                       PASS
+VirtualAswc.c/.h generated                    PASS
 Generic task_impl.c CDD Task removal         PASS
+Generic task_impl.c datatype removal          PASS
 CMake generated Task integration              PASS
+CMake generated Virtual ASWC integration      PASS
 generate.sh automatic CDD discovery           PASS
 generate.sh scanner integration               PASS
 GOIL generation                               PASS
@@ -501,6 +569,8 @@ Semantic Scanner
         +--> Generated RTE
         |
         +--> Generated CDD Tasks
+        |
+        +--> Generated Virtual ASWC skeleton
         |
         v
 Fixed Virtual AUTOSAR OS
