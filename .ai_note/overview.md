@@ -44,17 +44,20 @@ RTI proprietary source and libraries remain external to the repository.
 | 1 | Trampoline POSIX AUTOSAR OS | PASS |
 | 2 | RTI AUTOSAR PSL / PIL integration | PASS |
 | 3 | Real DDS over Virtual AUTOSAR TcpIp | GOLDEN BASELINE |
-| 4 | DdsCdd RTE Auto Generator | PASS |
-| 5 | OS Robustness / Error / Resource | PASS |
-| 6 | AUTOSAR Trace / Runtime Monitor | PASS |
-| 7 | Stack / Heap / Memory Monitoring | NEXT |
-| 8 | Stress / Fault Injection | PLANNED |
-| 9 | Integrated DdsCdd / DDS Validation | PLANNED |
-| 10 | Final Virtual ECU Test Bench | PLANNED |
-| 11 | Documentation / Reproducibility / Release | PLANNED |
+| 4 | Minimal Generated RTE | PASS |
+| 5 | RTE / ASWC Scope Resolution | COMPLETE / ABSORBED |
+| 6 | Generated CDD Task Integration | PASS / GOLDEN |
+| 7 | OS Robustness / Error / Resource | NEXT |
+| 8 | AUTOSAR Trace / Runtime Monitor | PLANNED |
+| 9 | Stack / Heap / Memory Monitoring | PLANNED |
+| 10 | Stress / Fault Injection | PLANNED |
+| 11 | Integrated DdsCdd / DDS Validation | PLANNED |
+| 12 | Final Virtual ECU Test Bench | PLANNED |
+| 13 | Documentation / Reproducibility / Release | PLANNED |
 
-Phase 4 absorbed earlier generator/import work that had previously occupied
-later roadmap numbers. The table above is the current numbering.
+Phases 4 through 6 are the completed DdsCdd RTE automation work. Phase 5
+closed the proposed broader ASWC extension as unnecessary, and Phase 6 added
+generated CDD task integration. The table above is the current numbering.
 
 ## Completed Baseline
 
@@ -89,34 +92,42 @@ later roadmap numbers. The table above is the current numbering.
 - Preserve the existing task priorities, resources, socket configuration, and
   RTI receive configuration
 
-### Phase 4 - Minimal Generated RTE
+### Phases 4-6 - DdsCdd RTE Automation
+
+Phase 4 delivered:
 
 - CDD ARXML and generated-code scanner
 - Semantic endpoint, runnable, event, and datatype model
 - Generated `Rte_Type.h`, `Rte_DdsCddType.h`, and `Rte_DdsCddType.c`
 - Endpoint-specific Read/Write buffers and DataReceived handling
 - InternalTrigger mapping to the fixed OS topology
-- Generated CDD task implementation
-- Clean generation/build and Golden DDS regression passed
+
+Phase 5 completed the ASWC/RTE scope review. The proposed broader ASWC-side
+extension was intentionally absorbed because the Phase 4 endpoint-driven RTE
+already satisfied the PoC without expanding into a general AUTOSAR stack.
+
+Phase 6 delivered generated CDD task implementations and removed the remaining
+CDD-specific manual task glue from the generic application task source.
+
+Clean generation, build, and Golden DDS regression passed across this work.
 
 The generator remains deliberately narrow. It does not generate a full RTE,
 ECUC, Composition, ECU Mapping, or dynamic OS topology.
 
-### Phase 5 - OS Robustness / Error / Resource
+## Phase 7 - OS Robustness / Error / Resource
 
-Completed baseline for OS error handling, activation/resource behavior, and
-robustness. Preserve Trampoline ownership of scheduler, resource, priority
-ceiling, activation-limit, and ErrorHook semantics.
+Phase 7 is the current next phase. Validate Trampoline-owned scheduler,
+resource, priority-ceiling, activation-limit, and ErrorHook behavior under
+recoverable error conditions. Monitoring must observe these semantics without
+reimplementing them in application code.
 
-### Phase 6 - AUTOSAR Trace / Runtime Monitor
+## Phase 8 - AUTOSAR Trace / Runtime Monitor
 
-Completed baseline for AUTOSAR logical tracing and runtime monitoring. Logical
-task states come from Trampoline behavior rather than Linux scheduler inference.
+Implement AUTOSAR logical tracing and runtime monitoring. Logical task states
+must come from Trampoline behavior rather than Linux scheduler inference.
 Preserve the distinction between AUTOSAR logical timing and Linux host timing.
 
-## Phase 7 - Stack / Heap / Memory Monitoring
-
-Phase 7 is the current next phase.
+## Phase 9 - Stack / Heap / Memory Monitoring
 
 ### Task Stack
 
@@ -146,7 +157,7 @@ Provide project-owned monitoring for:
 The configured heap budget must be enforced even when Linux has additional
 memory available.
 
-### Phase 7 Exit Criterion
+### Phase 9 Exit Criterion
 
 ```text
 Configured task stack information is visible
@@ -156,7 +167,7 @@ Configured task stack information is visible
 + clean build and Phase 3 DDS regression remain PASS
 ```
 
-## Phase 8 - Stress / Fault Injection
+## Phase 10 - Stress / Fault Injection
 
 Exercise and observe:
 
@@ -171,7 +182,7 @@ Exercise and observe:
 Each test must isolate one fault, capture monitor/trace evidence, and preserve
 safe continued execution where Trampoline semantics permit it.
 
-## Phase 9 - Integrated DdsCdd / DDS Validation
+## Phase 11 - Integrated DdsCdd / DDS Validation
 
 Run the complete application path:
 
@@ -189,7 +200,7 @@ Validate normal bidirectional DDS operation with trace, runtime monitor, and
 memory monitor enabled. Include regression of generated RTE endpoint behavior
 and known sample payloads.
 
-## Phase 10 - Final Virtual ECU Test Bench
+## Phase 12 - Final Virtual ECU Test Bench
 
 Package a reusable workflow:
 
@@ -205,7 +216,7 @@ import DdsCdd
 
 The result is a repeatable test bench, not a general AUTOSAR authoring tool.
 
-## Phase 11 - Documentation / Reproducibility / Release
+## Phase 13 - Documentation / Reproducibility / Release
 
 Freeze and document:
 
