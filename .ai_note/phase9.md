@@ -898,11 +898,402 @@ The next implementation phase should only begin after these answers are grounded
 
 Proceed with the inspection-only Phase 9.1 experiment above and classify the available memory-monitoring capability before implementing any Phase 9 instrumentation.
 
+## Phase 9.3 - Process Heap / Memory Monitoring
+
+### Final Status
+
+```text
+PHASE 9.3: COMPLETE
+STATUS: PASS
+```
+
+Phase 9.3 established project-owned Linux process memory and glibc allocator observation for the Linux AUTOSAR Virtual PoC without adding periodic memory polling to the AUTOSAR task execution path.
+
+The measurements are intentionally separated into two semantic domains:
+
+```text
+Linux Process Memory
+glibc Allocator Statistics
+```
+
+Neither domain is presented as physical ECU RAM or an exact embedded AUTOSAR heap measurement.
+
+### Objective
+
+Provide a low-intrusion memory snapshot API capable of observing:
+
+- current resident process memory,
+- peak resident process memory,
+- virtual address-space size,
+- Linux data mapping size,
+- glibc allocator arena statistics,
+- allocator used/free block statistics,
+- mmap-backed allocator statistics.
+
+The implementation must preserve the existing Golden AUTOSAR scheduling, DDS, TcpIp, RTE, CDD, and Phase 8 trace behavior.
+
+### Capability Investigation
+
+The host environment provides:
+
+```text
+glibc 2.43
+/proc/self/status
+mallinfo2()
+malloc_info()
+malloc_stats()
+```
+
+Relevant `/proc/self/status` fields were confirmed available:
+
+```text
+VmPeak
+VmSize
+VmHWM
+VmRSS
+RssAnon
+RssFile
+RssShmem
+VmData
+VmStk
+```
+
+Phase 9.3 uses the following process metrics:
+
+| Metric | Meaning |
+|--------|---------|
+| VmRSS  | Current resident process memory |
+| VmHWM  | Peak resident process memory |
+| VmSize | Current virtual address-space size |
+| VmData | Linux data mapping size; not exact heap usage |
+
+### Heap Adapter Investigation
+
+The existing compatibility adapter is:
+
+```c
+void *
+OSAPI_Heap_realloc(void *ptr, RTI_SIZE_T size)
+{
+    if (size == 0U)
+    {
+        return NULL;
+    }
+
+    return realloc(ptr, (size_t)size);
+}
+```
+
+Project-source inspection found the adapter itself and its build/documentation references, but did not establish that every DDS/PSL/PIL allocation is routed through this function.
+
+Therefore:
+
+```text
+HeapAdapter call accounting != complete DDS heap accounting
+```
+
+Phase 9.3 does not use HeapAdapter instrumentation as the authoritative process heap measurement.
+
+### glibc Allocator Observation
+
+`mallinfo2()` was confirmed available and functional in the actual Virtual AUTOSAR process.
+
+The monitored allocator fields are:
+
+| Field    | Phase 9.3 interpretation |
+|----------|--------------------------|
+| arena    | Space obtained for non-mmap allocator arenas |
+| uordblks | Space occupied by currently allocated blocks |
+| fordblks | Space in free allocator blocks |
+| hblkhd   | Space in mmap-backed allocation regions |
+
+These values are labeled:
+
+```text
+glibc Allocator Statistics
+```
+
+They are not labeled as ECU heap usage.
+
+### Implementation
+
+Phase 9.3 adds:
+
+```text
+platform/autosar/ProcessMemoryMonitor.h
+platform/autosar/ProcessMemoryMonitor.c
+```
+
+and registers the source in `CMakeLists.txt`.
+
+The public snapshot structure is:
+
+```c
+typedef struct
+{
+    size_t vm_rss_kb;
+    size_t vm_hwm_kb;
+    size_t vm_size_kb;
+    size_t vm_data_kb;
+
+    size_t glibc_arena_bytes;
+    size_t glibc_used_bytes;
+    size_t glibc_free_bytes;
+    size_t glibc_mmap_bytes;
+} Phase9_ProcessMemoryUsage;
+```
+
+The API is:
+
+```c
+int Phase9_ProcessMemory_GetUsage(
+    Phase9_ProcessMemoryUsage *usage);
+```
+
+The implementation reads `/proc/self/status` for Linux process metrics and calls `mallinfo2()` for allocator statistics.
+
+No generated AUTOSAR source or Trampoline source is modified by this component.
+
+### Runtime Validation
+
+#### Initial allocator validation
+
+A direct `mallinfo2()` experiment in the Virtual AUTOSAR process produced:
+
+```text
+arena     = 135168 B
+uordblks  =   1040 B
+fordblks  = 134128 B
+hblkhd    =      0 B
+```
+
+This established that the allocator interface works in the target Linux runtime.
+
+#### Integrated process-memory snapshot
+
+The project-owned API was then called from a temporary bounded runtime probe.
+
+Observed example:
+
+```text
+VmRSS  = 3124 kB
+VmHWM  = 3124 kB
+VmSize = 70248 kB
+VmData = 66012 kB
+
+glibc arena = 135168 B
+glibc used  =   8112 B
+glibc free  = 127056 B
+glibc mmap  =      0 B
+```
+
+The large difference between `VmData` and `glibc_used` demonstrates why these values must not be treated as equivalent heap measurements.
+
+#### Time-separated snapshots
+
+Two runtime snapshots were taken at different App_Task activations.
+
+Snapshot #1:
+
+```text
+VmRSS       = 3060 kB
+VmHWM       = 3060 kB
+VmSize      = 70248 kB
+VmData      = 66012 kB
+glibc_used  = 8112 B
+glibc_free  = 127056 B
+```
+
+Snapshot #3:
+
+```text
+VmRSS       = 3188 kB
+VmHWM       = 3188 kB
+VmSize      = 70248 kB
+VmData      = 66012 kB
+glibc_used  = 8112 B
+glibc_free  = 127056 B
+```
+
+Observed change:
+
+```text
+VmRSS  : +128 kB
+VmHWM  : +128 kB
+VmSize : unchanged
+VmData : unchanged
+glibc allocator used/free : unchanged
+```
+
+This demonstrated that process RSS behavior and glibc allocator statistics are distinct observation domains.
+
+`VmHWM` also behaved as the process resident-memory high-water metric during the experiment.
+
+### Temporary Probe Cleanup
+
+All Phase 9.3 experimental calls were removed from `task_impl.c`.
+
+The final App_Task returned to:
+
+```c
+TASK(App_Task)
+{
+    VirtualAswc_Run();
+
+    TerminateTask();
+}
+```
+
+The permanent Phase 9.3 implementation consists only of:
+
+```text
+platform/autosar/ProcessMemoryMonitor.c
+platform/autosar/ProcessMemoryMonitor.h
+CMakeLists.txt source registration
+```
+
+There is no periodic `/proc` parsing, `mallinfo2()` call, or diagnostic memory `printf()` in the normal AUTOSAR task path.
+
+### Golden Regression
+
+#### Build and linkage
+
+Clean generation/build completed successfully.
+
+Executable linkage confirmed:
+
+```text
+Phase9_ProcessMemory_GetUsage
+Phase9_StackMonitor_GetUsage
+Phase9_StackMonitor_Init
+```
+
+Observed symbols:
+
+```text
+0000000000055358 T Phase9_ProcessMemory_GetUsage
+000000000005518c T Phase9_StackMonitor_GetUsage
+00000000000550dd T Phase9_StackMonitor_Init
+```
+
+Result:
+
+```text
+Build / linkage : PASS
+```
+
+#### Runtime
+
+The cleaned build executed normally after removal of all Phase 9.3 probes.
+
+Existing Virtual AUTOSAR scheduling and runtime behavior remained operational.
+
+Result:
+
+```text
+AUTOSAR runtime : PASS
+```
+
+### Measurement Semantics
+
+The following terminology is authoritative for Phase 9.3:
+
+```text
+VmRSS  = Linux process resident memory
+VmHWM  = Linux process peak resident memory
+VmSize = Linux process virtual address-space size
+VmData = Linux data mapping observation
+```
+
+and:
+
+```text
+arena / uordblks / fordblks / hblkhd
+    = glibc allocator statistics
+```
+
+Do not describe:
+
+```text
+VmData as exact heap usage
+glibc statistics as physical ECU heap usage
+Linux process memory as ECU RAM
+HeapAdapter activity as complete DDS allocation accounting
+```
+
+DDS/PSL/PIL memory is included in the overall process where applicable, but component-specific allocation attribution remains limited.
+
+### Architecture Impact
+
+Phase 9.3 does not change:
+
+- AUTOSAR task priorities,
+- task activation behavior,
+- alarms,
+- resources,
+- DDS transport,
+- TcpIp polling,
+- RTE behavior,
+- DDS CDD behavior,
+- Trampoline scheduling,
+- generated AUTOSAR code.
+
+The monitor is a project-owned observation API only.
+
+### Limitations
+
+1. `/proc/self/status` is Linux-specific.
+2. `mallinfo2()` reports glibc allocator state, not physical ECU memory.
+3. `VmData` is not an exact heap metric.
+4. RSS can change without a corresponding change in `mallinfo2()` allocator usage.
+5. DDS-specific allocation attribution is not provided.
+6. HeapAdapter coverage is not proven to represent all DDS/PSL/PIL allocations.
+7. Phase 9.3 provides snapshot primitives; runtime presentation and integration belong to Phase 9.4.
+8. Threshold and warning policy belongs to Phase 9.5.
+
+### PASS Criteria
+
+| Criterion | Result |
+|-----------|--------|
+| Linux process-memory fields available | PASS |
+| `mallinfo2()` available | PASS |
+| `mallinfo2()` validated in actual runtime | PASS |
+| Project-owned process-memory API implemented | PASS |
+| VmRSS observation | PASS |
+| VmHWM observation | PASS |
+| VmSize observation | PASS |
+| VmData observation | PASS |
+| glibc allocator observation | PASS |
+| Time-separated snapshots demonstrated | PASS |
+| Process and allocator semantics separated | PASS |
+| Temporary task probes removed | PASS |
+| No generated-source modification | PASS |
+| No new Trampoline modification | PASS |
+| Clean build/linkage | PASS |
+| Runtime regression | PASS |
+
+### Final Result
+
+```text
+PHASE 9.3: COMPLETE
+
+STATUS: PASS
+```
+
+Phase 9.3 provides a bounded Linux process-memory and glibc allocator snapshot capability while preserving the Golden Virtual AUTOSAR architecture.
+
+The next planned subphase is:
+
+```text
+Phase 9.4 - Runtime Monitor Integration
+```
+
 ## Final Phase 9 status
 
 ```text
 PHASE 9.1: COMPLETE / PASS
 PHASE 9.2: COMPLETE / PASS
+PHASE 9.3: COMPLETE / PASS
 PHASE 9: IN PROGRESS
 ```
 
