@@ -16,6 +16,9 @@ CPU autosar_virtual {
     OS config {
         STATUS = EXTENDED;
 
+        ERRORHOOK = TRUE;
+        USEGETSERVICEID = TRUE;
+
         TRACE = TRUE {
             FORMAT = json;
             PROC = TRUE;

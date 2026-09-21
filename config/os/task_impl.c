@@ -13,6 +13,35 @@
 
 #include "Rte_DdsCddType.h"
 
+/*
+ * Phase 7.2 - Minimal OS error observation.
+ *
+ * ErrorHook must remain bounded:
+ * - no printf
+ * - no allocation
+ * - no blocking
+ * - no socket/file I/O
+ */
+typedef struct
+{
+    volatile unsigned long count;
+    volatile StatusType error;
+    volatile uint8 service_id;
+} Phase7_OsErrorRecord;
+
+static Phase7_OsErrorRecord g_phase7_os_error = {
+    0UL,
+    E_OK,
+    0
+};
+
+void ErrorHook(StatusType error)
+{
+    g_phase7_os_error.error = error;
+    g_phase7_os_error.service_id = OSErrorGetServiceId();
+    g_phase7_os_error.count++;
+}
+
 extern void DdsCdd_Init(void);
 extern void DdsCddStart(void);
 extern void DdsCdd_LocalIpAddrAssignmentChg(
