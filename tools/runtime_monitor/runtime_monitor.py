@@ -119,6 +119,116 @@ class StaticInfo:
 
         return None
 
+class MemoryInfo:
+    def __init__(self, path, static_info):
+        with open(path, "r") as f:
+            self.data = json.load(f)
+
+        if self.data.get("schema") != "phase9-memory-v1":
+            raise ValueError(
+                f"unsupported memory schema: "
+                f"{self.data.get('schema')}"
+            )
+
+        self.static_info = static_info
+        self.task_stack = self.data.get("task_stack", [])
+        self.process = self.data.get("process", {})
+        self.glibc = self.data.get("glibc", {})
+
+        self._validate()
+
+    def _validate(self):
+        task_count = len(self.static_info.tasks)
+
+        for task in self.task_stack:
+            task_id = task.get("task_id")
+
+            if not isinstance(task_id, int) or not (
+                0 <= task_id < task_count
+            ):
+                raise ValueError(
+                    f"invalid memory task_id: {task_id}"
+                )
+
+            required = (
+                "allocated_bytes",
+                "used_high_water_bytes",
+                "free_high_water_bytes",
+            )
+
+            for key in required:
+                if key not in task:
+                    raise ValueError(
+                        f"missing task stack field: {key}"
+                    )
+
+            allocated = task["allocated_bytes"]
+            used = task["used_high_water_bytes"]
+            free = task["free_high_water_bytes"]
+
+            if allocated != used + free:
+                raise ValueError(
+                    f"inconsistent task stack usage "
+                    f"for task_id={task_id}: "
+                    f"allocated={allocated} "
+                    f"used={used} free={free}"
+                )
+
+        for key in (
+            "vm_rss_kb",
+            "vm_hwm_kb",
+            "vm_size_kb",
+            "vm_data_kb",
+        ):
+            if key not in self.process:
+                raise ValueError(
+                    f"missing process memory field: {key}"
+                )
+
+        for key in (
+            "arena_bytes",
+            "used_bytes",
+            "free_bytes",
+            "mmap_bytes",
+        ):
+            if key not in self.glibc:
+                raise ValueError(
+                    f"missing glibc memory field: {key}"
+                )
+
+    def print_report(self):
+        print()
+        print("MEMORY")
+
+        print("  TASK_STACK")
+
+        for task in self.task_stack:
+            task_id = task.get("task_id", -1)
+            name = self.static_info.task_name(task_id)
+
+            print(
+                f"    {name} "
+                f"allocated={task.get('allocated_bytes')} "
+                f"used={task.get('used_high_water_bytes')} "
+                f"free={task.get('free_high_water_bytes')}"
+            )
+
+        print("  PROCESS")
+        print(
+            f"    VmRSS={self.process.get('vm_rss_kb')} kB "
+            f"VmHWM={self.process.get('vm_hwm_kb')} kB "
+            f"VmSize={self.process.get('vm_size_kb')} kB "
+            f"VmData={self.process.get('vm_data_kb')} kB"
+        )
+
+        print("  GLIBC")
+        print(
+            f"    arena={self.glibc.get('arena_bytes')} bytes "
+            f"used={self.glibc.get('used_bytes')} bytes "
+            f"free={self.glibc.get('free_bytes')} bytes "
+            f"mmap={self.glibc.get('mmap_bytes')} bytes"
+        )
+
 def iter_trace_records(path):
     """
     Incrementally parse Trampoline POSIX trace.json.
@@ -619,6 +729,12 @@ def main():
     )
 
     parser.add_argument(
+        "--memory",
+        default=None,
+        help="Optional Phase 9 memory snapshot JSON",
+    )
+
+    parser.add_argument(
         "--derived",
         action="store_true",
         help="Print derived task lifecycle records instead of raw records",
@@ -666,6 +782,14 @@ def main():
 
     diagnostics = deriver.finalize(trace_incomplete)
 
+    memory_info = None
+
+    if args.memory is not None:
+        memory_info = MemoryInfo(
+            args.memory,
+            static_info,
+        )
+
     print()
     print(
         f"SUMMARY raw_records={raw_count} "
@@ -673,6 +797,9 @@ def main():
         f"parser_warnings={warning_count} "
         f"trace_incomplete={'yes' if trace_incomplete else 'no'}"
     )
+
+    if memory_info is not None:
+        memory_info.print_report()
 
     if diagnostics:
         print("EOF_DIAGNOSTICS")

@@ -1288,12 +1288,516 @@ The next planned subphase is:
 Phase 9.4 - Runtime Monitor Integration
 ```
 
+## Phase 9.4 - Runtime Monitor Integration
+
+### Final Status
+
+```text
+PHASE 9.4: COMPLETE
+STATUS: PASS
+```
+
+Phase 9.4 integrated the Phase 9 task-stack and Linux process-memory observations with the existing Phase 8 runtime monitor while preserving the Golden trace format and existing CLI behavior.
+
+### Objective
+
+Integrate the memory-monitoring capabilities established in Phase 9.2 and Phase 9.3 with the existing project-owned runtime monitor.
+
+The integration must:
+
+- preserve `trace.json`,
+- preserve existing Phase 8 trace decoding,
+- keep memory observations separate from Trampoline trace records,
+- resolve task names through generated static metadata rather than hardcoded names,
+- make memory input optional,
+- validate memory snapshot consistency,
+- avoid permanent file I/O in AUTOSAR task execution paths.
+
+### Final Architecture
+
+```text
+trace.json ----------------------+
+                                 |
+tpl_static_info.json ------------+--> runtime_monitor.py
+  |                              |       |
+  +-- task ID -> task name       |       +-- Scheduling / OS view
+                                 |       +-- Memory view
+memory_snapshot.json ------------+
+  +-- task stack high-water
+  +-- Linux process memory
+  +-- glibc allocator statistics
+```
+
+Memory data is deliberately not embedded into `trace.json`.
+
+### Task Metadata Mapping
+
+Generated static information was confirmed to contain:
+
+```text
+id=0 DdsCddProcessData_Task  priority=2 stack=32768
+id=1 DdsCddReadWrite_Task    priority=4 stack=32768
+id=2 RTI_Task                priority=6 stack=32768
+id=3 App_Task                priority=3 stack=32768
+id=4 DdsCddTimerTick_Task    priority=5 stack=32768
+id=5 TcpIp_Task              priority=8 stack=32768
+```
+
+The same task ID indexes the Trampoline process table used by the stack monitor.
+
+Therefore the memory snapshot stores task IDs rather than task names. `runtime_monitor.py` resolves names through the existing `StaticInfo.task_name()` mechanism.
+
+This avoids hardcoding the current application task names into the memory-monitoring format.
+
+### Memory Snapshot Schema
+
+Phase 9.4 defines:
+
+```text
+schema = phase9-memory-v1
+```
+
+Example structure:
+
+```json
+{
+  "schema": "phase9-memory-v1",
+  "task_stack": [
+    {
+      "task_id": 0,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 3576,
+      "free_high_water_bytes": 29192
+    }
+  ],
+  "process": {
+    "vm_rss_kb": 3108,
+    "vm_hwm_kb": 3108,
+    "vm_size_kb": 70248,
+    "vm_data_kb": 66012
+  },
+  "glibc": {
+    "arena_bytes": 135168,
+    "used_bytes": 8112,
+    "free_bytes": 127056,
+    "mmap_bytes": 0
+  }
+}
+```
+
+### Snapshot Exporter
+
+Phase 9.4 adds:
+
+```text
+platform/autosar/MemorySnapshot.h
+platform/autosar/MemorySnapshot.c
+```
+
+Public API:
+
+```c
+int Phase9_MemorySnapshot_WriteJson(
+    const char *path);
+```
+
+The exporter combines:
+
+```text
+Phase9_StackMonitor_GetUsage()
+Phase9_ProcessMemory_GetUsage()
+```
+
+and emits one bounded JSON snapshot.
+
+The exporter does not contain application-specific task names.
+
+### Snapshot Runtime Validation
+
+A temporary one-shot App_Task probe was used only to validate the exporter.
+
+The runtime successfully generated:
+
+```text
+memory_snapshot.json
+```
+
+with all six configured tasks.
+
+Observed task-stack values:
+
+```text
+DdsCddProcessData_Task allocated=32768 used=3576 free=29192
+DdsCddReadWrite_Task   allocated=32768 used=6856 free=25912
+RTI_Task               allocated=32768 used=7080 free=25688
+App_Task               allocated=32768 used=4568 free=28200
+DdsCddTimerTick_Task   allocated=32768 used=3904 free=28864
+TcpIp_Task             allocated=32768 used=9792 free=22976
+```
+
+For all six tasks:
+
+```text
+allocated_bytes =
+    used_high_water_bytes +
+    free_high_water_bytes
+```
+
+Observed process snapshot:
+
+```text
+VmRSS  = 3108 kB
+VmHWM  = 3108 kB
+VmSize = 70248 kB
+VmData = 66012 kB
+```
+
+Observed glibc allocator snapshot:
+
+```text
+arena = 135168 bytes
+used  =   8112 bytes
+free  = 127056 bytes
+mmap  =      0 bytes
+```
+
+The generated file was successfully parsed with Python `json.load()`.
+
+### Temporary Runtime Probe Cleanup
+
+The one-shot snapshot call was removed after validation.
+
+Final `App_Task` returned to:
+
+```c
+TASK(App_Task)
+{
+    VirtualAswc_Run();
+
+    TerminateTask();
+}
+```
+
+No permanent Phase 9.4 JSON file I/O remains in App_Task, RTI_Task, ErrorHook, scheduler hooks, or other AUTOSAR task execution paths.
+
+### Runtime Monitor Integration
+
+`tools/runtime_monitor/runtime_monitor.py` now supports an optional argument:
+
+```text
+--memory <memory_snapshot.json>
+```
+
+Existing usage remains valid:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+    trace.json \
+    --static-info autosar_virtual/tpl_static_info.json \
+    --derived \
+    --limit 100
+```
+
+Memory-enabled usage:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+    trace.json \
+    --static-info autosar_virtual/tpl_static_info.json \
+    --memory memory_snapshot.json \
+    --derived \
+    --limit 100
+```
+
+The memory view contains:
+
+```text
+MEMORY
+  TASK_STACK
+  PROCESS
+  GLIBC
+```
+
+Task names are resolved through generated static metadata.
+
+### Memory Snapshot Validation
+
+The monitor validates the snapshot before displaying it.
+
+Validation includes:
+
+```text
+schema == phase9-memory-v1
+task_id is within generated task range
+allocated_bytes == used_high_water_bytes + free_high_water_bytes
+required process-memory fields exist
+required glibc allocator fields exist
+```
+
+Required process fields:
+
+```text
+vm_rss_kb
+vm_hwm_kb
+vm_size_kb
+vm_data_kb
+```
+
+Required glibc fields:
+
+```text
+arena_bytes
+used_bytes
+free_bytes
+mmap_bytes
+```
+
+#### Positive Validation
+
+The real runtime-generated snapshot passed all validation and was displayed successfully.
+
+Result:
+
+```text
+PASS
+```
+
+#### Negative Validation
+
+A temporary invalid snapshot was generated with:
+
+```text
+task_id = 99
+```
+
+The runtime monitor rejected it with:
+
+```text
+ValueError: invalid memory task_id: 99
+```
+
+Result:
+
+```text
+INVALID INPUT REJECTION: PASS
+```
+
+### Phase 8 Backward Compatibility
+
+The original Phase 8 command was tested without `--memory`.
+
+Observed:
+
+```text
+SUMMARY raw_records=25766
+derived_records=25766
+parser_warnings=1
+trace_incomplete=yes
+```
+
+No memory section was printed.
+
+The `trace_incomplete=yes` result is the existing accepted Ctrl+C/truncated-trace behavior and is not a Phase 9.4 regression.
+
+Result:
+
+```text
+PHASE 8 CLI COMPATIBILITY: PASS
+```
+
+### Integrated Monitor Validation
+
+The same trace was then processed with the memory snapshot enabled.
+
+Observed output included:
+
+```text
+MEMORY
+  TASK_STACK
+    DdsCddProcessData_Task allocated=32768 used=3576 free=29192
+    DdsCddReadWrite_Task allocated=32768 used=6856 free=25912
+    RTI_Task allocated=32768 used=7080 free=25688
+    App_Task allocated=32768 used=4568 free=28200
+    DdsCddTimerTick_Task allocated=32768 used=3904 free=28864
+    TcpIp_Task allocated=32768 used=9792 free=22976
+
+  PROCESS
+    VmRSS=3108 kB
+    VmHWM=3108 kB
+    VmSize=70248 kB
+    VmData=66012 kB
+
+  GLIBC
+    arena=135168 bytes
+    used=8112 bytes
+    free=127056 bytes
+    mmap=0 bytes
+```
+
+Result:
+
+```text
+TRACE + MEMORY INTEGRATION: PASS
+```
+
+### Golden Regression
+
+Clean generation/build completed successfully.
+
+Linked symbols:
+
+```text
+Phase9_MemorySnapshot_WriteJson
+Phase9_ProcessMemory_GetUsage
+Phase9_StackMonitor_GetUsage
+Phase9_StackMonitor_Init
+```
+
+Observed:
+
+```text
+0000000000055513 T Phase9_MemorySnapshot_WriteJson
+0000000000055358 T Phase9_ProcessMemory_GetUsage
+000000000005518c T Phase9_StackMonitor_GetUsage
+00000000000550dd T Phase9_StackMonitor_Init
+```
+
+Python syntax validation:
+
+```text
+python3 -m py_compile tools/runtime_monitor/runtime_monitor.py
+PASS
+```
+
+Phase 8 trace decoding remained operational.
+
+Phase 9 memory integration remained operational.
+
+The Virtual AUTOSAR runtime was reported normal after the Phase 9.4 changes.
+
+### Measurement Semantics
+
+The Phase 9.2 and Phase 9.3 semantic boundaries remain unchanged.
+
+#### Task Stack
+
+```text
+Trampoline POSIX AUTOSAR Task Stack High-Water
+```
+
+It is not claimed to be exact physical MCU task-stack behavior.
+
+#### Process Memory
+
+```text
+VmRSS  = Linux process resident memory
+VmHWM  = Linux process peak resident memory
+VmSize = Linux process virtual address-space size
+VmData = Linux data mapping observation
+```
+
+`VmData` is not exact heap usage.
+
+#### glibc Allocator
+
+```text
+arena / used / free / mmap
+    = glibc allocator statistics
+```
+
+These values are not physical ECU heap usage.
+
+### Design Constraints Preserved
+
+Phase 9.4 does not modify:
+
+- task priorities,
+- task activation semantics,
+- alarms,
+- AUTOSAR resources,
+- DDS transport,
+- TcpIp polling,
+- RTE behavior,
+- DDS CDD behavior,
+- Trampoline scheduling,
+- Phase 8 trace format.
+
+The existing project Golden Trampoline POSIX 1 ms timer dependency is unchanged.
+
+No additional Trampoline modification was introduced.
+
+### Repository State at Validation
+
+Phase 9.4-related working-tree changes included:
+
+```text
+M  CMakeLists.txt
+M  tools/runtime_monitor/runtime_monitor.py
+?? platform/autosar/MemorySnapshot.c
+?? platform/autosar/MemorySnapshot.h
+?? memory_snapshot.json
+```
+
+The existing:
+
+```text
+m third_party/trampoline
+```
+
+is the pre-existing Golden Trampoline POSIX 1 ms timer modification and is not a Phase 9.4 change.
+
+`memory_snapshot.json` is a generated runtime observation artifact. Its repository retention policy should be treated separately from the permanent source implementation.
+
+### PASS Criteria
+
+| Criterion | Result |
+|-----------|--------|
+| Separate memory snapshot format | PASS |
+| Trace format unchanged | PASS |
+| Task IDs mapped through generated metadata | PASS |
+| No hardcoded application task names in snapshot | PASS |
+| Task-stack snapshot export | PASS |
+| Process-memory snapshot export | PASS |
+| glibc allocator snapshot export | PASS |
+| JSON serialization | PASS |
+| JSON parsing | PASS |
+| Optional `--memory` CLI | PASS |
+| Existing Phase 8 CLI preserved | PASS |
+| Memory report integrated | PASS |
+| Valid snapshot accepted | PASS |
+| Invalid task ID rejected | PASS |
+| Stack consistency validation | PASS |
+| Required process fields validated | PASS |
+| Required glibc fields validated | PASS |
+| Temporary App_Task probe removed | PASS |
+| No permanent AUTOSAR task file I/O | PASS |
+| Clean build/linkage | PASS |
+| Python syntax validation | PASS |
+| Runtime regression | PASS |
+
+### Final Result
+
+```text
+PHASE 9.4: COMPLETE
+
+STATUS: PASS / GOLDEN
+```
+
+Phase 9.4 establishes the unified project runtime-monitor interface for AUTOSAR scheduling traces and Phase 9 memory observations without changing the Golden scheduling or trace architecture.
+
+The next planned subphase is:
+
+```text
+Phase 9.5 - Threshold / Warning Model
+```
+
 ## Final Phase 9 status
 
 ```text
 PHASE 9.1: COMPLETE / PASS
 PHASE 9.2: COMPLETE / PASS
 PHASE 9.3: COMPLETE / PASS
+PHASE 9.4: COMPLETE / PASS
 PHASE 9: IN PROGRESS
 ```
 

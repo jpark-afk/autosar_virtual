@@ -1,0 +1,53 @@
+{
+  "schema": "phase9-memory-v1",
+  "task_stack": [
+    {
+      "task_id": 0,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 3576,
+      "free_high_water_bytes": 29192
+    },
+    {
+      "task_id": 1,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 6856,
+      "free_high_water_bytes": 25912
+    },
+    {
+      "task_id": 2,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 7080,
+      "free_high_water_bytes": 25688
+    },
+    {
+      "task_id": 3,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 4568,
+      "free_high_water_bytes": 28200
+    },
+    {
+      "task_id": 4,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 3904,
+      "free_high_water_bytes": 28864
+    },
+    {
+      "task_id": 5,
+      "allocated_bytes": 32768,
+      "used_high_water_bytes": 9792,
+      "free_high_water_bytes": 22976
+    }
+  ],
+  "process": {
+    "vm_rss_kb": 3108,
+    "vm_hwm_kb": 3108,
+    "vm_size_kb": 70248,
+    "vm_data_kb": 66012
+  },
+  "glibc": {
+    "arena_bytes": 135168,
+    "used_bytes": 8112,
+    "free_bytes": 127056,
+    "mmap_bytes": 0
+  }
+}

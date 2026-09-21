@@ -95,7 +95,7 @@ int DdsImpl_CreateEntities()
     struct OSAPI_LogProperty property;
     OSAPI_Log_get_property(&property);
     property.write_buffer = my_log_write_function;
-    OSAPI_Log_set_verbosity(OSAPI_LOG_VERBOSITY_ERROR);
+    OSAPI_Log_set_verbosity(OSAPI_LOG_VERBOSITY_SILENT);
     if (!OSAPI_Log_set_property(&property)) {
         printf("Failed to set log property\n");
     }

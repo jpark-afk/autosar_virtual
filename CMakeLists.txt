@@ -81,6 +81,7 @@ add_executable(autosar_virtual
     ${CMAKE_SOURCE_DIR}/config/os/task_impl.c
     ${CMAKE_SOURCE_DIR}/platform/autosar/StackMonitor.c
     ${CMAKE_SOURCE_DIR}/platform/autosar/ProcessMemoryMonitor.c
+    ${CMAKE_SOURCE_DIR}/platform/autosar/MemorySnapshot.c
 
     # Virtual RTE
     ${CMAKE_SOURCE_DIR}/platform/autosar/Rte_DdsCddType.c
