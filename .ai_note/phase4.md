@@ -1,479 +1,176 @@
-# Phase 4 — DdsCdd RTE Auto Generator
+# Phase 4 - Minimal Generated RTE
 
-You are continuing the Linux AUTOSAR Virtual PoC in `/home/jpark/autosar_virtual`.
-
-Read this file before changing anything. Phase 3 is complete and working as the frozen Golden Baseline. Preserve it and do not restart the investigation from Phase 0.
-
-## Official Roadmap
+## Final Status
 
 ```text
-Phase 0  Environment / x86_64 ABI / PIL compatibility       PASS
-Phase 1  Trampoline POSIX AUTOSAR OS                       PASS
-Phase 2  RTI AUTOSAR PSL / PIL integration                 PASS
-Phase 3  Virtual TcpIp + real DDS E2E                      GOLDEN BASELINE
-Phase 4  DdsCdd RTE Auto Generator                         NEXT
-Phase 5  OS robustness                                     PLANNED
-Phase 6  AUTOSAR trace / Perfetto / OS monitor              PLANNED
-Phase 7  Stack / heap / memory monitor                      PLANNED
-Phase 8  Stress / fault injection                           PLANNED
-Phase 9  Final reusable virtual ECU                         PLANNED
+PHASE 4: COMPLETE
+STATUS: PASS / GOLDEN
 ```
 
-Phase 3 is frozen. Do not change the communication foundation while developing Phase 4.
+Phase 4 established a minimal generated RTE layer for the Linux AUTOSAR Virtual PoC. The generator analyzes a supplied DDS CDD AUTOSAR model, builds a semantic intermediate model, and emits only the RTE glue required by the existing Virtual AUTOSAR platform.
 
-## Mission
-
-Phase 4 automatically analyzes a selected `DdsCdd` generated-code directory and generates or updates the minimum RTE compatibility interfaces required to compile that application in the existing Virtual AUTOSAR environment.
-
-This is not a general AUTOSAR RTE generator. It is a minimal compatibility generator for quickly importing replaceable DdsCdd generated applications.
-
-For each step, state one concrete goal, make the smallest edit, define one PASS criterion, and validate immediately.
-
-The design boundary is:
+The Phase 3 communication foundation remains unchanged:
 
 ```text
-CHANGEABLE
-DdsCdd generated C/H + optional ARXML
-  -> RTE Generator
-  -> generated minimal RTE
-
-FIXED / GOLDEN
-OS task template -> Trampoline -> RTI AUTOSAR PSL
-     -> DDS Micro PIL -> Virtual TcpIp
+Mock ASWC
+   <-> Generated Minimal RTE
+   <-> Generated DDS CDD
+   <-> RTI AUTOSAR PSL
+   <-> RTI DDS Micro PIL
+   <-> Virtual TcpIp
+   <-> Trampoline POSIX AUTOSAR OS
 ```
 
-The generator must not modify or own the fixed OS, TcpIp, RTI, or DDS communication path.
+## Plan Versus Result
 
-## Phase 4 Pass Criterion
+| Planned item | Result |
+|---|---|
+| Phase 4.0 Golden RTE analysis and fixed event model | PASS |
+| Phase 4.1 DdsCdd scanner | PASS |
+| Phase 4.2 semantic intermediate model | PASS / GOLDEN |
+| Phase 4.3-A datatype model | PASS |
+| Phase 4.3-B `Rte_Type.h` generation | PASS |
+| Phase 4.3-C `Rte_DdsCddType.h` generation | PASS |
+| Phase 4.3-D endpoint buffers and Read/Write APIs | PASS |
+| Phase 4.3-E DataReceived glue | PASS |
+| Phase 4.3-F InternalTrigger to fixed OS mapping | PASS |
+| Phase 4.3-G generated build and DDS regression | PASS |
+| Phase 4.4 through 4.7 from the original roadmap | Superseded by the completed 4.3 generator integration and final regression |
+
+## Design Boundary
+
+Included:
+
+- CDD ARXML scanning
+- Semantic endpoint and runnable discovery
+- AUTOSAR datatype extraction
+- Normalized intermediate model
+- `Rte_Type.h` generation
+- `Rte_DdsCddType.h` and `Rte_DdsCddType.c` generation
+- Endpoint-based RTE communication buffers
+- `Rte_Read_*` and `Rte_Write_*`
+- DataReceived pending state and consumption helpers
+- Semantic InternalTrigger mapping
+- Generated RTE build integration
+
+Excluded by design:
+
+- Full AUTOSAR RTE generation
+- Full ECUC, Composition, or ECU Mapping generation
+- GUI tooling
+- Dynamic OS topology generation
+- CDD-specific OIL generation
+- QEMU, ARM, FreeRTOS, lwIP, and RTI POSIX PSL
+
+## Semantic Model Rules
+
+- Endpoint identity is `(interface_ref, data_element)`, not the datatype alone.
+- Read and Write endpoints are independent; never pair them by list index.
+- Generated CDD C/H is the mandatory compile-level source of truth.
+- ARXML supplies semantic relationships and event information.
+- RTE symbol names must not be split on underscores to guess port/type boundaries.
+- Application identifiers such as `PDIO_FL_Domain_6`, `Cabin_Door_PDIO_FL`, and `GCS_LEFT_2_PDIO_FL` are validation data, not generator hardcoding.
+- Unresolved endpoints and unsupported relationships must fail explicitly.
+
+## Fixed OS Architecture
+
+The Trampoline POSIX OIL topology is immutable. The generator does not create or modify Tasks, Events, Alarms, Resources, or OIL files.
+
+Supported mappings include:
 
 ```text
-Replace the DdsCdd generated directory with another supported version
- -> run RTE analysis/generation
- -> build without manual DdsCdd source edits
- -> unresolved RTE dependency count is zero
- -> Phase 3 DDS bidirectional regression still passes
+InternalTrigger -> DdsCddProcessData
+                 -> DdsCddProcessData_Task / DdsCddProcessDataEvent
+
+InternalTrigger -> DdsCddTimerUpdate
+                 -> DdsCddReadWrite_Task / DdsCddTimerUpdateEvent
 ```
 
-## Phase 4 Internal Steps
+Unsupported InternalTrigger targets or OS relationships are generator errors rather than reasons to mutate the platform topology.
+
+## Generated RTE Behavior
+
+Each semantic endpoint receives its own communication buffer. Generated APIs provide the CDD-side and ASWC-side Read/Write operations.
+
+For DataReceived behavior:
 
 ```text
-4.1 Scanner
-4.2 Classifier
-4.3 Type extraction
-4.4 RTE generation
-4.5 Unresolved dependency report
-4.6 Import workflow
-4.7 Phase 3 regression
+ASWC Rte_Write
+    -> endpoint buffer update
+    -> pending flag = TRUE
+    -> next fixed CDD periodic dispatch
+    -> Rte_ConsumeDataReceived_*
+    -> generated CDD Write runnable
+    -> DDS output
 ```
 
-### 4.1 Scanner Scope
+This is the accepted Virtual PoC approximation. No per-port OS object is generated. There is no invented `Rte_IsUpdated` contract for periodic ASWC polling.
 
-The first implementation step scans only the selected generated-code directory and optional ARXML files. It extracts symbol references; it does not generate files yet.
+## Build and Regression Evidence
 
-RTE candidates:
-
-```text
-Rte_Read_*
-Rte_Write_*
-Rte_Call_*
-Rte_IrvRead_*
-Rte_IrvWrite_*
-Rte_Mode_*
-Rte type declarations used by those interfaces
-```
-
-External dependencies, not generator outputs:
-
-```text
-SetEvent / GetEvent / WaitEvent / ClearEvent
-GetResource / ReleaseResource
-TcpIp_*
-OS services
-libc and compiler intrinsics
-DDS APIs
-RTI APIs
-```
-
-Scanner 4.1 PASS criterion:
-
-```text
-Given a DdsCdd generated directory, emit a deterministic symbol inventory
-that separates RTE candidates from external dependencies, reports source
-locations, and returns zero scanner errors for the current Phase 3 DdsCdd.
-```
-
-Do not infer RTE APIs from arbitrary substrings. Use C-aware tokenization or a structured parser where practical, and preserve source locations for later unresolved reports.
-
-The fixed architecture is:
-
-```text
-Windows Host DDS application
-        <-> UDP/RTPS over enp0s8
-192.168.56.1 <-> 192.168.56.105
-        <-> Linux virtual AUTOSAR TcpIp
-        <-> Trampoline POSIX AUTOSAR OS
-        <-> RTI AUTOSAR PSL
-        <-> RTI DDS Micro PIL
-        <-> DDS CDD / RTE runnable
-```
-
-Do not redesign this architecture.
-
-## Explicit Exclusions
-
-Do not return to or introduce:
-
-```text
-QEMU
-FreeRTOS
-lwIP
-ARM
-32-bit builds
-RTI POSIX PSL
-```
-
-RTI proprietary sources and libraries are external to this repository. Do not copy, modify, or commit proprietary RTI source. Project adapters and Linux compatibility code belong under `platform/autosar/`.
-
-## Environment
-
-```text
-Host: Ubuntu Server 26.04.1 LTS
-CPU/ABI: x86_64
-Compiler: GCC 13.4.0
-RTI: Connext DDS Micro 4.3.0 ER738
-RTIMEHOME: $HOME/dds/rti_connext_dds_micro-4.3.0_ER738
-PIL library: $RTIMEHOME/lib/x86_64leElfgcc13.3.0
-Trampoline: third_party/trampoline
-GOIL target: posix
-Linux interface: enp0s8
-Linux local IP: 192.168.56.105/24
-Windows peer IP: 192.168.56.1
-Repository: git@github.com:jpark-afk/autosar_virtual.git
-```
-
-Start every shell session with:
+The generated RTE was integrated into the real Virtual AUTOSAR executable with:
 
 ```bash
-cd ~/autosar_virtual
-source ./env.sh
-```
+python3 tools/ddscdd_scanner/scan_ddscdd.py \
+    dds_example/PDIO_FL_Domain_6/autosar_gen \
+    -o build/ddscdd_scan.json \
+    --rte-output-dir platform/autosar
 
-## Standard Workflow
-
-```bash
 ./generate.sh
 ./clean_build.sh
 ./build.sh
+./run.sh
 ```
 
-`generate.sh` applies the Trampoline POSIX patch and regenerates files from `config/os/autosar_virtual.oil`. Never hand-edit generated files under `autosar_virtual/`.
+The generated artifacts compiled and linked with Trampoline POSIX, Virtual TcpIp, RTI AUTOSAR PSL, RTI DDS Micro PIL, generated DDS code, generated CDD code, and the Mock ASWC.
 
-The build log is `/tmp/autosar_virtual_build.log` when enabled by the scripts.
-
-## Current Source Map
+Validated DDS paths:
 
 ```text
-config/os/autosar_virtual.oil
-  OIL tasks, alarms, events, resources, priorities, stack sizes
-
-config/os/stub.c
-  main, RTI bootstrap task, TcpIp task, read/write task, RX event task
-
-platform/autosar/TcpIp.c
-  Linux-backed AUTOSAR TcpIp implementation and DDS socket polling
-
-platform/autosar/TcpIp.h
-  Virtual TcpIp types, APIs, LocalAddrId definitions, diagnostic switch
-
-platform/autosar/Rte_Type.h
-  Virtual RTE signal types
-
-platform/autosar/Rte_DdsCddType.c/.h
-  RTE storage and RX internal trigger to SetEvent
-
-dds_example/autosar_gen/DdsCdd.c
-  Generated DDS CDD runnable implementations
-
-dds_example/adaptation/dds_cdd_adapter.c/.h
-  DDS CDD adapter, RTI system properties, SocketOwner and RX bridge
-
-dds_example/dds_impl/dds_impl.c/.h
-  DDS participant, DataWriter and DataReader operations
-
-dds_example/dds_impl/dds_systemAppgen.c/.h
-  Generated RTI AppGen participant/transport configuration
-
-dds_example/dds_gen/
-  Generated DDS types, plugins, support and conversions
+Windows DDS publisher -> Linux DDS reader -> CDD -> generated RTE -> Mock ASWC: PASS
+Mock ASWC -> generated RTE -> CDD -> DDS writer -> Windows DDS subscriber: PASS
 ```
 
-`dds_example` must remain production/integration code only. Do not add temporary test prints, test sockets, or diagnostic markers there. Use `TcpIp_Log()` only when deliberately enabling diagnostics.
-
-## Verified DDS Configuration
-
-`dds_cdd_adapter.c` configures:
-
-```c
-system_property.psl_property.timer_resolution_ms = 10;
-system_property.psl_property.sync_type = OSAPI_AUTOSAR_SYNCKIND_RESOURCES;
-system_property.psl_property.mutex_resource_id = OsResource_DdsMain;
-system_property.psl_property.timer_resource_id = OsResource_DdsTimer;
-system_property.psl_property.netio_resource_id = OsResource_DdsNetio;
-system_property.psl_property.use_socket_owner = TRUE;
-system_property.psl_property.get_socket = DdsCdd_GetSocket;
-system_property.psl_property.send_data = NULL;
-system_property.psl_property.max_local_addr_id = 2;
-system_property.psl_property.send_local_addr_id = 0;
-system_property.psl_property.number_of_rcv_buffers = 8u;
-system_property.psl_property.rcv_buffer_size = 1500u;
-system_property.psl_property.use_udp_thread = TRUE;
-system_property.psl_property.dds_rxindication = DdsCddRxIndication;
-```
-
-Do not randomly change `use_udp_thread`, buffer values, or the three RTI resource IDs. They are coupled to the patched AUTOSAR PSL implementation.
-
-AppGen transport facts are already verified:
+A known payload value was transmitted and preserved end to end:
 
 ```text
-initial peer: 0@192.168.56.1
-discovery transport: udpv4://
-user traffic transport: udpv4://
-allow interface: enp0s8
-configured address: 192.168.56.105 / 255.255.255.0
-DDS receive ports: 8910 and 8911
-DDS send port: ephemeral
+PwrDrOpnClsCmd_PDIO_FL: publisher = 7, Mock ASWC = 7
 ```
 
-## OIL Baseline
+The Phase 3 bidirectional DDS Golden baseline is preserved after generated RTE integration and final cleanup.
 
-Required resources:
+## Reusable Debugging Lessons
 
-```oil
-RESOURCE OsResource_DdsMain { RESOURCEPROPERTY = STANDARD; };
-RESOURCE OsResource_DdsTimer { RESOURCEPROPERTY = STANDARD; };
-RESOURCE OsResource_DdsNetio { RESOURCEPROPERTY = STANDARD; };
-```
+- Validate the complete path incrementally before changing TcpIp, PSL, task priorities, or RTE architecture.
+- Do not infer DDS failure from missing application output alone.
+- Confirm the actual executable path is `build/cmake/autosar_virtual`.
+- Temporary `printf` diagnostics can be affected by definitions in `dds_impl.h`.
+- Verify payloads by configuring a known publisher value and comparing publisher, DDS-side, converted RTE, and ASWC values.
+- Keep generated CDD source untouched; integration changes belong in RTE, platform, or generator layers.
 
-Working task priorities and resources:
+## Exit Criteria
 
 ```text
-TcpIp_Task              priority 10; resources OsResource_DdsNetio, OsResource_DdsMain
-DdsCddTimerTick_Task    priority 5;  resource OsResource_DdsTimer
-DdsCddReadWrite_Task    priority 5;  resources OsResource_DdsMain, OsResource_DdsTimer
-DdsCddProcessData_Task  priority 1;  resources OsResource_DdsMain, OsResource_DdsNetio
-RTI_Task                priority 1;  resources OsResource_DdsMain, OsResource_DdsTimer
+CDD ARXML scanner                         PASS
+Semantic intermediate model               PASS
+Datatype generation                       PASS
+Rte_Type.h generation                     PASS
+Rte_DdsCddType.h generation               PASS
+Rte_DdsCddType.c generation               PASS
+Endpoint-based RTE buffers                PASS
+Independent Read/Write cardinality        PASS
+DataReceived state and glue               PASS
+InternalTrigger semantic discovery        PASS
+Fixed Task/Event mapping                  PASS
+Unsupported topology explicit failure     PASS
+Generated RTE compile and link            PASS
+Windows -> Linux DDS E2E                  PASS
+Payload-level RX verification             PASS
+Linux -> Windows DDS E2E                  PASS
+Phase 3 Golden regression                 PASS
+Final clean regression                    PASS
 ```
 
-Task behavior:
+## Baseline for Future Work
 
-```text
-DdsCddReadWrite_Task
-  activated by DdsCdd100msAlarm
-  ALARMTIME = 1000
-  CYCLETIME = 1000
-  calls timer update, DDS Writer, DDS Reader
-
-DdsCddProcessData_Task
-  AUTOSTART = TRUE
-  priority 1
-  waits for DdsCddProcessDataEvent
-  calls DdsCddProcessData when event is set
-
-TcpIp_Task
-  activated every 5 ms
-  initializes the virtual TcpIp once
-  polls retained DDS sockets
-```
-
-Why both resources are needed:
-
-```text
-RTI autosarSocket mutex
-  OSAPI_Mutex_new()
-  -> mutex_resource_id
-  -> OsResource_DdsMain
-
-RTI UDP network lock
-  UDP_Interface_receive()
-  -> self->property.network_lock
-  -> netio_resource_id
-  -> OsResource_DdsNetio
-```
-
-`TcpIp_Task` calls the RX path directly, so it must own both resources. Removing `OsResource_DdsMain` from `TcpIp_Task` breaks valid RX handling.
-
-## Verified Call Chains
-
-Socket acquisition and binding:
-
-```text
-DDS participant/UDP transport
- -> NETIO_AutosarSocket_socket()
- -> PortProperty.get_socket
- -> DdsCdd_GetSocket()
- -> TcpIp_TcpIp_DdsCddGetSocket()
- -> socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
- -> TcpIp_Bind()
- -> bind()
-```
-
-RX:
-
-```text
-TcpIp_Task
- -> TcpIp_PollDdsRx()
- -> recvfrom() on DDS fd 10/11
- -> sockaddr_in conversion
- -> DdsCdd_RxIndication()
- -> NETIO_Autosar_TcpIp_udp_rx_indication()
- -> RTI receive buffer
- -> dds_rxindication = DdsCddRxIndication()
- -> Trigger_DdsCdd_RxIndication()
- -> Rte_IrTrigger_DdsCdd_RxIndication_ITP_DdsCdd_RxIndication()
- -> SetEvent(DdsCddProcessData_Task, DdsCddProcessDataEvent)
- -> DdsCddProcessData_Task
- -> DdsCddProcessData()
- -> NETIO_Autosar_udp_receive_callback()
- -> RTI NETIO/RTPS processing
-```
-
-TX:
-
-```text
-DdsCddReadWrite_Task
- -> DdsCddWrite_Cabin_Door_PDIO_FL()
- -> DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL()
- -> DdsImpl_Cabin_Door_PDIO_FL_WriteSample()
- -> DDS DataWriter write()
- -> RTI UDP sendmsg/sendto
- -> NETIO_AutosarSocket_sendto/sendmsg()
- -> TcpIp_UdpTransmit()
- -> Linux sendto()
- -> 192.168.56.1
-```
-
-## Address and ABI Rules
-
-There is one configured local address:
-
-```text
-LocalAddrId 0 = 192.168.56.105
-TCPIP_LOCALADDRID_ANY = 0xFF
-```
-
-`max_local_addr_id = 2` is an RTI property upper bound, not a count of implemented virtual addresses. `TcpIp_GetIpAddr()` and `TcpIp_Bind()` support LocalAddrId 0.
-
-For IPv4:
-
-```text
-sin_addr.s_addr is retained as the network-order 32-bit value
-port is converted with ntohs() when building TcpIp_SockAddrInetType
-TcpIp_UdpTransmit() converts the AUTOSAR port back with htons()
-```
-
-Do not convert addresses based on host-endian display values. For example, log value `0x0138a8c0` represents bytes `C0 A8 38 01`, or `192.168.56.1`.
-
-`TcpIp_SocketIdType` is `uint16` and stores small Linux file descriptors. No pointer is narrowed to 32 bits.
-
-## Runtime Procedure
-
-Normal direct `./run.sh` may exit when ViPER loses terminal input. For a persistent target session use:
-
-```bash
-cd ~/autosar_virtual
-source ./env.sh
-setsid script -q -f -c './run.sh' /tmp/autosar_pty.out >/dev/null 2>&1 &
-```
-
-Check readiness:
-
-```bash
-ss -lunp | grep -E '192.168.56.105:(8910|8911)'
-```
-
-Expected listener state:
-
-```text
-192.168.56.105:8910
-192.168.56.105:8911
-```
-
-The Windows Host DDS test app is prepared by the user and must not be modified. Ask the user to launch it only after these listeners exist.
-
-Force-stop according to the project rule:
-
-```bash
-pkill -f autosar_virtual
-```
-
-Do not combine that pattern with a command containing the same text if avoiding self-matching is important; run cleanup as a separate command.
-
-## Diagnostics
-
-`TcpIp_Log()` is retained for future use but disabled by default:
-
-```c
-#define TCPIP_ENABLE_DIAGNOSTIC_LOG 0
-```
-
-It is implemented in `config/os/stub.c`; with the switch disabled, the log file is not opened and the function is a no-op. Temporary diagnostics belong in `/tmp`, not in `dds_example` source output.
-
-Do not print from the 5 ms TcpIp task. ViPER raw terminal mode causes interleaved/corrupted output. If diagnostics are needed, enable the switch deliberately and use low-frequency logs.
-
-## Phase3 Final Status
-
-The user confirmed successful DDS sample exchange in both directions after task priority correction:
-
-```text
-Windows Host -> Linux DDS Reader: PASS
-Linux DDS Writer -> Windows Host Reader: PASS
-RTPS TX through TcpIp_UdpTransmit/sendto: PASS
-RTPS RX through TcpIp and RTE event task: PASS
-```
-
-Earlier valid RX evidence included:
-
-```text
-SocketId=10
-domain=2
-source=192.168.56.1
-valid UDP source port
-valid packet length
-RTPS payload
-```
-
-An RTPS-sized TX boundary was observed:
-
-```text
-TcpIp_UdpTransmit socket=9 -> 192.168.56.1:8910
-length=440 bytes
-sent=440 bytes
-```
-
-`tcpdump` was not used as final evidence because the environment lacked `CAP_NET_RAW`. Application-level DDS sample exchange was confirmed with the Windows Host app.
-
-## Phase4 Starting Prompt
-
-```text
-Continue Phase4 in /home/jpark/autosar_virtual.
-
-Read .ai_note/phase4.md and .ai_note/phase3.md first. Phase3 is PASS; preserve it and do not redesign the architecture.
-
-Fixed path:
-Windows DDS Host 192.168.56.1 <-> Linux 192.168.56.105/enp0s8 <-> virtual AUTOSAR TcpIp <-> Trampoline POSIX <-> RTI AUTOSAR PSL/PIL <-> DDS CDD/RTE.
-
-Do not use QEMU, FreeRTOS, lwIP, ARM, 32-bit, or RTI POSIX PSL. RTI proprietary source/libraries remain outside the repository.
-
-Known working facts:
-- DdsCdd_GetSocket reaches Linux socket allocation.
-- DDS receive sockets bind on UDP 8910 and 8911.
-- TcpIp_Task polls retained nonblocking DDS fds every 5 ms.
-- TcpIp_Task priority is 10 and owns OsResource_DdsNetio and OsResource_DdsMain.
-- DdsCddProcessData_Task is priority 1, AUTOSTART TRUE, and waits for DdsCddProcessDataEvent.
-- DdsCddReadWrite_Task is priority 5 and runs every 1000 ms.
-- RTI mutex/timer/netio resources map to DdsMain/DdsTimer/DdsNetio.
-- Windows Host and Linux exchanged DDS samples both ways.
-- TcpIp_Log exists but is disabled by default with TCPIP_ENABLE_DIAGNOSTIC_LOG 0.
-
-Start by stating one Phase4 goal and one PASS criterion. Inspect only the owning code path, make the smallest edit, and run a focused validation immediately. Check git status before modifying files. Use pkill -f autosar_virtual for forced termination. Do not add temporary diagnostics to dds_example.
-```
+Phase 4 is now the Golden baseline. Future phases must build on the generated RTE rather than reintroducing the former hand-written RTE implementation. The fixed Phase 3 communication path and OIL topology remain protected architectural constraints.

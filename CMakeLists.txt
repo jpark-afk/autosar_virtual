@@ -17,6 +17,32 @@ message(STATUS "RTIMEHOME      = ${RTIMEHOME}")
 message(STATUS "TRAMPOLINE_HOME = ${TRAMPOLINE_HOME}")
 message(STATUS "GOIL           = ${GOIL}")
 
+# ---------------------------------------------------------------------------
+# DDS CDD application discovery
+# ---------------------------------------------------------------------------
+
+file(GLOB DDS_CDD_CANDIDATES
+    "${CMAKE_SOURCE_DIR}/dds_example/*/autosar_gen/DdsCdd.c"
+)
+
+list(LENGTH DDS_CDD_CANDIDATES DDS_CDD_COUNT)
+
+if(NOT DDS_CDD_COUNT EQUAL 1)
+    message(FATAL_ERROR
+        "Expected exactly one DDS CDD application under dds_example/, "
+        "found ${DDS_CDD_COUNT}: ${DDS_CDD_CANDIDATES}"
+    )
+endif()
+
+list(GET DDS_CDD_CANDIDATES 0 DDS_CDD_MAIN)
+
+get_filename_component(DDS_CDD_AUTOSAR_GEN_DIR "${DDS_CDD_MAIN}" DIRECTORY)
+get_filename_component(DDS_CDD_ROOT "${DDS_CDD_AUTOSAR_GEN_DIR}" DIRECTORY)
+
+message(STATUS "DDS CDD root: ${DDS_CDD_ROOT}")
+
+
+
 add_executable(autosar_virtual
 
     ${RTI_PSL_SRC}
@@ -52,26 +78,26 @@ add_executable(autosar_virtual
     ${CMAKE_SOURCE_DIR}/platform/autosar/HeapAdapter.c
     ${CMAKE_SOURCE_DIR}/platform/autosar/Det.c
     ${CMAKE_SOURCE_DIR}/platform/autosar/TcpIp.c
-    ${CMAKE_SOURCE_DIR}/config/os/stub.c
+    ${CMAKE_SOURCE_DIR}/config/os/task_impl.c
 
     # Virtual RTE
     ${CMAKE_SOURCE_DIR}/platform/autosar/Rte_DdsCddType.c
 
     # DDS CDD - AUTOSAR generated runnable
-    ${CMAKE_SOURCE_DIR}/dds_example/autosar_gen/DdsCdd.c
+    ${DDS_CDD_ROOT}/autosar_gen/DdsCdd.c
 
     # DDS CDD - AUTOSAR adaptation
-    ${CMAKE_SOURCE_DIR}/dds_example/adaptation/dds_cdd_adapter.c
+    ${DDS_CDD_ROOT}/adaptation/dds_cdd_adapter.c
 
     # DDS generated types / conversions
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_conversions.c
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_types.c
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_typesPlugin.c
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen/dds_system_typesSupport.c
+    ${DDS_CDD_ROOT}/dds_gen/dds_system_conversions.c
+    ${DDS_CDD_ROOT}/dds_gen/dds_system_types.c
+    ${DDS_CDD_ROOT}/dds_gen/dds_system_typesPlugin.c
+    ${DDS_CDD_ROOT}/dds_gen/dds_system_typesSupport.c
 
     # DDS implementation
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl/dds_impl.c
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl/dds_systemAppgen.c
+    ${DDS_CDD_ROOT}/dds_impl/dds_impl.c
+    ${DDS_CDD_ROOT}/dds_impl/dds_systemAppgen.c
 
     # Phase2 RTI PSL configuration - temporary
 )
@@ -103,11 +129,11 @@ target_include_directories(autosar_virtual PRIVATE
     ${CMAKE_SOURCE_DIR}/platform/rti
 
     # Virtual RTE / DDS CDD
-    ${CMAKE_SOURCE_DIR}/dds_example
-    ${CMAKE_SOURCE_DIR}/dds_example/autosar_gen
-    ${CMAKE_SOURCE_DIR}/dds_example/adaptation
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_gen
-    ${CMAKE_SOURCE_DIR}/dds_example/dds_impl
+    ${DDS_CDD_ROOT}
+    ${DDS_CDD_ROOT}/autosar_gen
+    ${DDS_CDD_ROOT}/adaptation
+    ${DDS_CDD_ROOT}/dds_gen
+    ${DDS_CDD_ROOT}/dds_impl
 
 )
 

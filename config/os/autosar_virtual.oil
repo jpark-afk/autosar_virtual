@@ -97,7 +97,7 @@ CPU autosar_virtual {
         };
     };
 
-    ALARM DdsCdd100msAlarm {
+    ALARM DdsCddReadWriteAlarm {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
@@ -106,8 +106,9 @@ CPU autosar_virtual {
             APPMODE = stdAppmode;
         };
 
-        ACTION = ACTIVATETASK {
+        ACTION = SETEVENT {
             TASK = DdsCddReadWrite_Task;
+            EVENT = DdsCddPeriodicReadEvent;
         };
     };
 
@@ -125,8 +126,24 @@ CPU autosar_virtual {
         };
     };
 
+    ALARM AppAlarm {
+        COUNTER = SystemCounter;
+
+        AUTOSTART = TRUE {
+            ALARMTIME = 1000;
+            CYCLETIME = 1000;
+            APPMODE = stdAppmode;
+        };
+
+        ACTION = ACTIVATETASK {
+            TASK = App_Task;
+        };
+    };
+
+/* TASK */
+
     TASK RTI_Task {
-        PRIORITY = 1;
+        PRIORITY = 9;
         AUTOSTART = TRUE {
             APPMODE = stdAppmode;
         };
@@ -151,9 +168,23 @@ CPU autosar_virtual {
         RESOURCE = OsResource_DdsMain;
     };
 
+    TASK App_Task {
+        PRIORITY = 2;
+        AUTOSTART = FALSE;
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+    };
+
     /* ----------------------------------------------------------------------
      * DDS CDD Virtual RTE Tasks
      * ---------------------------------------------------------------------- */
+    EVENT DdsCddTimerUpdateEvent {
+        MASK = AUTO;
+    };
+
+    EVENT DdsCddPeriodicReadEvent {
+        MASK = AUTO;
+    };
 
     EVENT DdsCddProcessDataEvent {
         MASK = AUTO;
@@ -181,10 +212,18 @@ CPU autosar_virtual {
     };
 
     TASK DdsCddReadWrite_Task {
-        PRIORITY = 2;
-        AUTOSTART = FALSE;
+        PRIORITY = 3;
+
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+
         ACTIVATION = 1;
         SCHEDULE = FULL;
+
+        EVENT = DdsCddTimerUpdateEvent;
+        EVENT = DdsCddPeriodicReadEvent;
+
         RESOURCE = OsResource_DdsMain;
         RESOURCE = OsResource_DdsTimer;
     };

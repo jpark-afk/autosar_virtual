@@ -8,3 +8,6 @@
 /readTrace.py
 /trace.json
 /config/os/build/
+__pycache__/
+*.pyc
+*.bak_*

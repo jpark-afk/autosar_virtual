@@ -28,15 +28,32 @@ Std_ReturnType
 Rte_Write_S_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
     const GCS_LEFT_2_PDIO_FL_t *data);
 
+Std_ReturnType
+Rte_Read_R_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
+    GCS_LEFT_2_PDIO_FL_t *data);
+
+Std_ReturnType
+Rte_Write_S_Cabin_Door_PDIO_FL_Cabin_Door_PDIO_FL_t(
+    const Cabin_Door_PDIO_FL_t *data);
+
 /* --------------------------------------------------------------------------
  * RTE Internal Trigger APIs
  * -------------------------------------------------------------------------- */
 
-void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void);
-
 void Rte_IrTrigger_DdsCdd_RxIndication_ITP_DdsCdd_RxIndication(void);
 
-#endif /* RTE_DDSCDDTYPE_H */
+void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void);
 
-/* DDS CDD runnable callback invoked by RTI AUTOSAR PSL on UDP reception. */
+/* --------------------------------------------------------------------------
+ * Virtual DataReceivedEvent state
+ * -------------------------------------------------------------------------- */
+
+boolean Rte_ConsumeDataReceived_Cabin_Door_PDIO_FL(void);
+
+/* --------------------------------------------------------------------------
+ * RTI AUTOSAR PSL callback
+ * -------------------------------------------------------------------------- */
+
 FUNC(void, DdsCdd_CODE) DdsCddRxIndication(void);
+
+#endif /* RTE_DDSCDDTYPE_H */

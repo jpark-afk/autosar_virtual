@@ -15,7 +15,7 @@
 
 extern void DdsCddTimerTick(void);
 extern void DdsCddTimerUpdate(void);
-extern void DdsCddWrite_Cabin_Door_PDIO_FL(void);
+
 extern void DdsCddRead_GCS_LEFT_2_PDIO_FL(void);
 extern void DdsCddProcessData(void);
 extern void DdsCdd_Init(void);
@@ -24,7 +24,7 @@ extern void DdsCdd_LocalIpAddrAssignmentChg(
     TcpIp_LocalAddrIdType LocalAddrId,
     TcpIp_IpAddrStateType State);
 
-//extern RTI_BOOL OSAPI_AutosarSystem_initialize(void);
+extern void DdsCddWrite_Cabin_Door_PDIO_FL(void);
 
 static int TcpIp_TestSocket = -1;
 
@@ -226,6 +226,13 @@ TASK(TcpIp_Task)
     TerminateTask();
 }
 
+/*
+ * DdsCddTimerTick()
+ * -> InternalTrigger
+ * -> DdsCddTimerUpdateEvent
+ * -> DdsCddReadWrite_Task
+ * -> DdsCddTimerUpdate()
+ */
 TASK(DdsCddTimerTick_Task)
 {
     DdsCddTimerTick();
@@ -233,20 +240,91 @@ TASK(DdsCddTimerTick_Task)
     TerminateTask();
 }
 
-TASK(DdsCddReadWrite_Task)
+/* ASWC Runnable and TASK */
+static void MockAswc_Run(void)
 {
+    static uint8 counter = 0U;
+    GCS_LEFT_2_PDIO_FL_t gcs_data;
+    Cabin_Door_PDIO_FL_t cabin_door_data;
+
+    memset(&gcs_data, 0, sizeof(gcs_data));
+    memset(&cabin_door_data, 0, sizeof(cabin_door_data));
+
     /*
-     * Initial Virtual RTE mapping:
-     * 1. DDS timer handler
-     * 2. RTE -> DDS write
-     * 3. DDS -> RTE read
+     * ASWC R-Port:
+     * DATA-RECEIVE-POINT-BY-ARGUMENTS
+     *
+     * Periodically poll the latest value provided by DdsCdd.
      */
-    TcpIp_Log("[Rte] DdsCddReadWrite_Task ENTER");
-    DdsCddTimerUpdate();
-    DdsCddWrite_Cabin_Door_PDIO_FL();
-    DdsCddRead_GCS_LEFT_2_PDIO_FL();
+    if (Rte_Read_R_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
+            &gcs_data) == E_OK)
+    {
+        /*
+         * Mock application processing.
+         */
+    }
+
+    /*
+     * ASWC P-Port:
+     * DATA-SEND-POINTS
+     */
+    memset(&cabin_door_data, 0, sizeof(cabin_door_data));
+
+    cabin_door_data.PDIO_FL_Driver_Door_Switch_State = counter++;
+
+    (void)Rte_Write_S_Cabin_Door_PDIO_FL_Cabin_Door_PDIO_FL_t(
+        &cabin_door_data);
+}
+
+TASK(App_Task)
+{
+    MockAswc_Run();
 
     TerminateTask();
+}
+
+TASK(DdsCddReadWrite_Task)
+{
+    EventMaskType events;
+
+    for (;;)
+    {
+        WaitEvent(
+            DdsCddTimerUpdateEvent |
+            DdsCddPeriodicReadEvent);
+
+        GetEvent(DdsCddReadWrite_Task, &events);
+
+        if ((events & DdsCddTimerUpdateEvent) != 0U)
+        {
+            ClearEvent(DdsCddTimerUpdateEvent);
+
+            DdsCddTimerUpdate();
+        }
+
+        if ((events & DdsCddPeriodicReadEvent) != 0U)
+        {
+            ClearEvent(DdsCddPeriodicReadEvent);
+
+            TcpIp_Log("[Rte] DdsCddReadWrite_Task PERIODIC");            
+
+            /*
+            * Emulate DdsCdd DataReceivedEvent:
+            *
+            * R_Cabin_Door_PDIO_FL
+            *   -> Write_Cabin_Door_PDIO_FL
+            */
+            if (Rte_ConsumeDataReceived_Cabin_Door_PDIO_FL() != FALSE)
+            {
+                DdsCddWrite_Cabin_Door_PDIO_FL();
+            }
+
+            /*
+            * DdsCdd TimingEvent runnable.
+            */
+            DdsCddRead_GCS_LEFT_2_PDIO_FL();
+        }
+    }
 }
 
 TASK(DdsCddProcessData_Task)

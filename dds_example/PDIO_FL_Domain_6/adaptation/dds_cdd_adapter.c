@@ -53,8 +53,6 @@
 
 #ifndef netio_common_h
 #include "netio/netio_common.h"
-
-#include <stdio.h>
 #endif
 
     /* Workaround#VTT */
