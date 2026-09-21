@@ -1791,6 +1791,429 @@ The next planned subphase is:
 Phase 9.5 - Threshold / Warning Model
 ```
 
+## Phase 9.5 - Threshold / Warning Model
+
+### Final Status
+
+```text
+PHASE 9.5: COMPLETE
+STATUS: PASS / GOLDEN
+```
+
+Phase 9.5 added a bounded, policy-driven warning model to the Phase 9 memory view without changing the AUTOSAR runtime, Trampoline trace format, memory snapshot schema, or Phase 8 trace-only workflow.
+
+### Objective
+
+Add warning evaluation to the existing Phase 9 memory observation while keeping measurement and policy separate.
+
+The design must:
+
+- avoid arbitrary ECU-style limits for Linux process memory,
+- derive task-stack utilization from measured high-water data,
+- apply a warning only when an explicit threshold is supplied,
+- preserve observation-only behavior when no policy is supplied,
+- validate threshold input,
+- preserve Phase 8 and Phase 9.4 compatibility.
+
+### Scope Decision
+
+Phase 9.5 uses three distinct memory domains.
+
+#### Task Stack
+
+Task stack has a meaningful denominator:
+
+```text
+allocated_bytes
+```
+
+Therefore utilization can be derived as:
+
+```text
+utilization =
+    used_high_water_bytes / allocated_bytes * 100
+```
+
+An explicit percentage warning threshold is supported.
+
+#### Linux Process Memory
+
+The following remain observations:
+
+```text
+VmRSS
+VmHWM
+VmSize
+VmData
+```
+
+No default warning threshold is assigned.
+
+These values describe the Linux host process and must not be interpreted as a physical ECU RAM budget.
+
+#### glibc Allocator
+
+The following remain observations:
+
+```text
+arena
+used
+free
+mmap
+```
+
+No default warning threshold is assigned.
+
+These are glibc allocator statistics and are not treated as an AUTOSAR ECU heap budget.
+
+### CLI
+
+Phase 9.5 adds:
+
+```text
+--stack-warn-percent <percentage>
+```
+
+Example:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+    trace.json \
+    --static-info autosar_virtual/tpl_static_info.json \
+    --memory memory_snapshot.json \
+    --stack-warn-percent 80 \
+    --derived \
+    --limit 100
+```
+
+The threshold is optional.
+
+Without the option, memory utilization is displayed but no warning policy is evaluated.
+
+### Warning Rule
+
+The task-stack rule is intentionally simple:
+
+```text
+utilization < threshold
+    -> no warning
+
+utilization >= threshold
+    -> warning
+```
+
+The threshold is not a built-in recommendation or safety limit. It is an explicit user/project policy applied to the measured Trampoline POSIX AUTOSAR task-stack high-water value.
+
+### Threshold Validation
+
+Valid range:
+
+```text
+0 < threshold <= 100
+```
+
+Invalid values are rejected by the CLI before trace processing.
+
+Example negative test:
+
+```text
+--stack-warn-percent 101
+```
+
+Result:
+
+```text
+runtime_monitor.py: error:
+--stack-warn-percent must be greater than 0
+and less than or equal to 100
+
+exit_code=2
+```
+
+Result:
+
+```text
+THRESHOLD INPUT VALIDATION: PASS
+```
+
+### Stack Utilization Observation
+
+The Phase 9.4 snapshot produced:
+
+```text
+DdsCddProcessData_Task  10.9%
+DdsCddReadWrite_Task    20.9%
+RTI_Task                21.6%
+App_Task                13.9%
+DdsCddTimerTick_Task    11.9%
+TcpIp_Task              29.9%
+```
+
+The maximum observed utilization in this snapshot was:
+
+```text
+TcpIp_Task = 29.9%
+```
+
+These percentages are observations from this runtime snapshot, not general stack-sizing guarantees.
+
+### No-Warning Validation
+
+Threshold:
+
+```text
+80%
+```
+
+Observed:
+
+```text
+MEMORY_WARNINGS
+  none
+```
+
+All measured task-stack utilization values were below the explicitly supplied 80% threshold.
+
+Result:
+
+```text
+NO-WARNING PATH: PASS
+```
+
+### Warning Detection Validation
+
+Threshold:
+
+```text
+20%
+```
+
+Observed:
+
+```text
+MEMORY_WARNINGS
+  STACK DdsCddReadWrite_Task utilization=20.9% threshold=20.0%
+  STACK RTI_Task utilization=21.6% threshold=20.0%
+  STACK TcpIp_Task utilization=29.9% threshold=20.0%
+```
+
+Exactly the three tasks at or above the supplied threshold were reported.
+
+Tasks below 20% were not reported.
+
+Result:
+
+```text
+WARNING DETECTION: PASS
+```
+
+### No-Policy Behavior
+
+The monitor was run with a memory snapshot but without:
+
+```text
+--stack-warn-percent
+```
+
+Task-stack utilization remained visible:
+
+```text
+TASK_STACK
+  ...
+  utilization=...
+```
+
+but the following section was not generated:
+
+```text
+MEMORY_WARNINGS
+```
+
+This preserves the distinction between:
+
+```text
+measurement
+```
+
+and:
+
+```text
+policy evaluation
+```
+
+Result:
+
+```text
+NO-POLICY MODE: PASS
+```
+
+### Phase 8 Compatibility
+
+Trace-only invocation remained valid:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+    trace.json \
+    --static-info autosar_virtual/tpl_static_info.json \
+    --derived \
+    --limit 1
+```
+
+Observed:
+
+```text
+SUMMARY raw_records=2696
+derived_records=2696
+parser_warnings=1
+trace_incomplete=yes
+```
+
+No memory or warning section was produced.
+
+The `trace_incomplete=yes` condition is the established accepted behavior for a trace truncated by external Ctrl+C termination.
+
+Result:
+
+```text
+PHASE 8 TRACE-ONLY COMPATIBILITY: PASS
+```
+
+### Phase 9.4 Compatibility
+
+Memory invocation without warning policy remained valid.
+
+Observed memory sections:
+
+```text
+TASK_STACK
+PROCESS
+GLIBC
+```
+
+The only presentation extension is the derived task-stack utilization percentage.
+
+No warning section is generated unless a threshold is explicitly requested.
+
+Result:
+
+```text
+PHASE 9.4 MEMORY COMPATIBILITY: PASS
+```
+
+### Golden Regression
+
+The final regression covered:
+
+```text
+Clean generate/build
+Python syntax validation
+Phase 8 trace-only mode
+Phase 9 memory mode without policy
+Phase 9.5 80% no-warning path
+Phase 9.5 20% warning path
+```
+
+Results:
+
+| Check | Result |
+|-------|--------|
+| Clean generation/build | PASS |
+| Python syntax | PASS |
+| Phase 8 trace-only CLI | PASS |
+| Memory without policy | PASS |
+| 80% threshold / no warnings | PASS |
+| 20% threshold / three warnings | PASS |
+| Invalid 101% threshold rejection | PASS |
+
+### Repository Impact
+
+The permanent Phase 9.5 implementation is contained in:
+
+```text
+tools/runtime_monitor/runtime_monitor.py
+```
+
+No Phase 9.5 C runtime changes were required.
+
+Final reported working-tree state:
+
+```text
+m third_party/trampoline
+M tools/runtime_monitor/runtime_monitor.py
+```
+
+The `third_party/trampoline` modification is the pre-existing Golden POSIX 1 ms timer change and is not a Phase 9.5 modification.
+
+### Runtime Impact
+
+Phase 9.5 adds no:
+
+- AUTOSAR task,
+- alarm,
+- resource,
+- scheduler hook,
+- ErrorHook work,
+- DDS operation,
+- TcpIp operation,
+- runtime file I/O,
+- Trampoline modification.
+
+Threshold evaluation occurs in the offline/project-owned Python runtime monitor.
+
+### Semantic Boundaries
+
+The stack metric remains:
+
+```text
+Trampoline POSIX AUTOSAR Task Stack High-Water
+```
+
+It includes the Trampoline POSIX execution/context behavior and is not claimed to be exact physical MCU task-stack behavior.
+
+Linux process memory remains host-process observation.
+
+glibc allocator values remain host allocator statistics.
+
+No Linux measurement is reclassified as physical ECU RAM or heap.
+
+### PASS Criteria
+
+| Criterion | Result |
+|-----------|--------|
+| Stack utilization derived correctly | PASS |
+| Explicit threshold policy supported | PASS |
+| No implicit default threshold | PASS |
+| Warning comparison uses `>=` | PASS |
+| No-warning path validated | PASS |
+| Warning path validated | PASS |
+| Exact expected warning tasks detected | PASS |
+| Invalid threshold rejected | PASS |
+| No-policy observation mode preserved | PASS |
+| Process memory remains observation-only | PASS |
+| glibc memory remains observation-only | PASS |
+| Phase 8 compatibility preserved | PASS |
+| Phase 9.4 compatibility preserved | PASS |
+| No AUTOSAR runtime modification | PASS |
+| Golden regression | PASS |
+
+### Final Result
+
+```text
+PHASE 9.5: COMPLETE
+
+STATUS: PASS / GOLDEN
+```
+
+Phase 9.5 establishes an explicit policy layer over the Phase 9 task-stack observation without inventing unsupported limits for Linux process or allocator memory.
+
+The next planned subphase is:
+
+```text
+Phase 9.6 - Golden Regression
+```
+
+Phase 9.6 should validate the complete Phase 9 stack, process-memory, snapshot, runtime-monitor, and warning pipeline against the established Virtual AUTOSAR Golden baseline.
+
 ## Final Phase 9 status
 
 ```text
@@ -1798,6 +2221,7 @@ PHASE 9.1: COMPLETE / PASS
 PHASE 9.2: COMPLETE / PASS
 PHASE 9.3: COMPLETE / PASS
 PHASE 9.4: COMPLETE / PASS
+PHASE 9.5: COMPLETE / PASS
 PHASE 9: IN PROGRESS
 ```
 

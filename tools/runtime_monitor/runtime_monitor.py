@@ -196,22 +196,43 @@ class MemoryInfo:
                     f"missing glibc memory field: {key}"
                 )
 
-    def print_report(self):
+    def print_report(self, stack_warn_percent=None):
         print()
         print("MEMORY")
 
         print("  TASK_STACK")
 
+        stack_warnings = []
+
         for task in self.task_stack:
             task_id = task.get("task_id", -1)
             name = self.static_info.task_name(task_id)
 
+            allocated = task["allocated_bytes"]
+            used = task["used_high_water_bytes"]
+            free = task["free_high_water_bytes"]
+
+            utilization = (
+                used * 100.0 / allocated
+                if allocated > 0
+                else 0.0
+            )
+
             print(
                 f"    {name} "
-                f"allocated={task.get('allocated_bytes')} "
-                f"used={task.get('used_high_water_bytes')} "
-                f"free={task.get('free_high_water_bytes')}"
+                f"allocated={allocated} "
+                f"used={used} "
+                f"free={free} "
+                f"utilization={utilization:.1f}%"
             )
+
+            if (
+                stack_warn_percent is not None
+                and utilization >= stack_warn_percent
+            ):
+                stack_warnings.append(
+                    (name, utilization)
+                )
 
         print("  PROCESS")
         print(
@@ -228,6 +249,20 @@ class MemoryInfo:
             f"free={self.glibc.get('free_bytes')} bytes "
             f"mmap={self.glibc.get('mmap_bytes')} bytes"
         )
+
+        if stack_warn_percent is not None:
+            print()
+            print("MEMORY_WARNINGS")
+
+            if not stack_warnings:
+                print("  none")
+            else:
+                for name, utilization in stack_warnings:
+                    print(
+                        f"  STACK {name} "
+                        f"utilization={utilization:.1f}% "
+                        f"threshold={stack_warn_percent:.1f}%"
+                    )
 
 def iter_trace_records(path):
     """
@@ -733,6 +768,12 @@ def main():
         default=None,
         help="Optional Phase 9 memory snapshot JSON",
     )
+    parser.add_argument(
+        "--stack-warn-percent",
+        type=float,
+        default=None,
+        help="Warn when task stack high-water utilization reaches this percent",
+    )
 
     parser.add_argument(
         "--derived",
@@ -748,6 +789,15 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if (
+        args.stack_warn_percent is not None
+        and not (0.0 < args.stack_warn_percent <= 100.0)
+    ):
+        parser.error(
+            "--stack-warn-percent must be greater than 0 "
+            "and less than or equal to 100"
+        )
 
     static_info = StaticInfo(args.static_info)
     deriver = RuntimeDeriver(static_info)
@@ -799,7 +849,9 @@ def main():
     )
 
     if memory_info is not None:
-        memory_info.print_report()
+        memory_info.print_report(
+            stack_warn_percent=args.stack_warn_percent
+        )
 
     if diagnostics:
         print("EOF_DIAGNOSTICS")
