@@ -13,6 +13,8 @@
 #include "Rte_DdsCddType.h"
 #include "VirtualAswc.h"
 
+#include "StackMonitor.h"
+
 /*
  * Phase 7.2 - Minimal OS error observation.
  *
@@ -54,6 +56,9 @@ int main(void)
 {    
     printf("[Virtual AUTOSAR] DdsCdd_Init before StartOS\n");
     DdsCdd_Init();
+
+    printf("[Virtual AUTOSAR] Initializing task stack monitor\n");
+    Phase9_StackMonitor_Init();
 
     printf("[Virtual AUTOSAR] Starting Trampoline OS\n");
     StartOS(stdAppmode);
@@ -254,4 +259,3 @@ TASK(App_Task)
 
     TerminateTask();
 }
-

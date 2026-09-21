@@ -79,6 +79,7 @@ add_executable(autosar_virtual
     ${CMAKE_SOURCE_DIR}/platform/autosar/Det.c
     ${CMAKE_SOURCE_DIR}/platform/autosar/TcpIp.c
     ${CMAKE_SOURCE_DIR}/config/os/task_impl.c
+    ${CMAKE_SOURCE_DIR}/platform/autosar/StackMonitor.c
 
     # Virtual RTE
     ${CMAKE_SOURCE_DIR}/platform/autosar/Rte_DdsCddType.c
