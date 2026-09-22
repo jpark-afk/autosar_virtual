@@ -7,6 +7,7 @@
 /make.py
 /readTrace.py
 /trace.json
+/runtime.txt
 /config/os/build/
 __pycache__/
 *.pyc
