@@ -47,12 +47,12 @@ RTI proprietary source and libraries remain external to the repository.
 | 4 | Minimal Generated RTE | PASS |
 | 5 | RTE / ASWC Scope Resolution | COMPLETE / ABSORBED |
 | 6 | Generated CDD Task Integration | PASS / GOLDEN |
-| 7 | OS Robustness / Error / Resource | NEXT |
-| 8 | AUTOSAR Trace / Runtime Monitor | PLANNED |
-| 9 | Stack / Heap / Memory Monitoring | PLANNED |
-| 10 | Stress / Fault Injection | PLANNED |
-| 11 | Integrated DdsCdd / DDS Validation | PLANNED |
-| 12 | Final Virtual ECU Test Bench | PLANNED |
+| 7 | OS Robustness / Error / Resource | COMPLETE / PASS |
+| 8 | AUTOSAR Trace / Runtime Monitor | COMPLETE / PASS / GOLDEN |
+| 9 | Stack / Heap / Memory Monitoring | COMPLETE / PASS / GOLDEN |
+| 10 | Stress / Fault Injection | COMPLETE / PASS / GOLDEN REGRESSION |
+| 11 | Integrated DdsCdd / DDS Validation | COMPLETE / PASS / GOLDEN |
+| 12 | Final Virtual ECU Test Bench | IN PROGRESS / 12.1-12.4 PASS |
 | 13 | Documentation / Reproducibility / Release | PLANNED |
 
 Phases 4 through 6 are the completed DdsCdd RTE automation work. Phase 5
@@ -116,14 +116,14 @@ ECUC, Composition, ECU Mapping, or dynamic OS topology.
 
 ## Phase 7 - OS Robustness / Error / Resource
 
-Phase 7 is the current next phase. Validate Trampoline-owned scheduler,
+Phase 7 validated Trampoline-owned scheduler,
 resource, priority-ceiling, activation-limit, and ErrorHook behavior under
 recoverable error conditions. Monitoring must observe these semantics without
 reimplementing them in application code.
 
 ## Phase 8 - AUTOSAR Trace / Runtime Monitor
 
-Implement AUTOSAR logical tracing and runtime monitoring. Logical task states
+Phase 8 implemented AUTOSAR logical tracing and runtime monitoring. Logical task states
 must come from Trampoline behavior rather than Linux scheduler inference.
 Preserve the distinction between AUTOSAR logical timing and Linux host timing.
 
@@ -215,6 +215,12 @@ import DdsCdd
 ```
 
 The result is a repeatable test bench, not a general AUTOSAR authoring tool.
+The existing `trace.json` and `runtime_monitor.py` remain the required
+observation path. Perfetto visualization is optional follow-up work after the
+core test-bench workflow is validated and is not a Phase 12 PASS requirement.
+If included in the Phase 12 test-bench work, Perfetto requires a separate
+environment and trace-format validation step; the current project trace must
+not be assumed to be directly importable without an export or adapter path.
 
 ## Phase 13 - Documentation / Reproducibility / Release
 

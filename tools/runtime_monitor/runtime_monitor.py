@@ -300,6 +300,11 @@ def iter_trace_records(path):
 
             text = "".join(buffer).strip()
 
+            # Remove JSON-array framing that may share the same line as
+            # the final object closing brace (for example "}]").
+            if text.endswith("]"):
+                text = text[:-1].rstrip()
+
             # Objects inside the JSON array normally end with ','.
             if text.endswith(","):
                 text = text[:-1].rstrip()
