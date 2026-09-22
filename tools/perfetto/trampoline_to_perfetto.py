@@ -94,6 +94,7 @@ def main():
 
     events = []
     running = {}
+    held_resources = {}
 
     raw_count = 0
     derived_count = 0
@@ -208,12 +209,34 @@ def main():
     task_count = len(static_info.tasks)
 
     for tid in range(task_count + 1):
+        task = static_info.tasks[tid] if tid < task_count else {}
+        task_name = static_info.task_name(tid)
+        priority = task.get("PRIORITY")
+
+        if priority is not None:
+            task_name = f"{task_name} [priority={priority}]"
+
         add_thread_name(
             events,
             PID_TASK,
             task_tid(tid),
-            static_info.task_name(tid),
+            task_name,
         )
+
+        if tid < task_count:
+            instant(
+                "CONFIGURED",
+                "autosar.task.config",
+                0,
+                PID_TASK,
+                task_tid(tid),
+                {
+                    "task": static_info.task_name(tid),
+                    "priority": priority,
+                    "activation": task.get("ACTIVATION"),
+                    "schedule": task.get("SCHEDULE"),
+                },
+            )
 
     # ------------------------------------------------------------
     # Alarm tracks
@@ -221,12 +244,28 @@ def main():
     # ------------------------------------------------------------
 
     for alarm_id, alarm in enumerate(static_info.alarms):
+        alarm_name = alarm.get("NAME", f"timeobj#{alarm_id}")
+
         add_thread_name(
             events,
             PID_ALARM,
             alarm_tid(alarm_id),
-            alarm.get("NAME", f"timeobj#{alarm_id}"),
+            alarm_name,
         )
+
+        if not alarm_name.startswith("Dummy"):
+            instant(
+                "CONFIGURED",
+                "autosar.alarm.config",
+                0,
+                PID_ALARM,
+                alarm_tid(alarm_id),
+                {
+                    "alarm": alarm_name,
+                    "autostart": alarm.get("AUTOSTART"),
+                    "action": alarm.get("ACTION"),
+                },
+            )
 
     # ------------------------------------------------------------
     # Resource tracks
@@ -234,12 +273,30 @@ def main():
     # ------------------------------------------------------------
 
     for resource_id, resource in enumerate(static_info.resources):
+        resource_name = resource.get(
+            "NAME",
+            f"resource#{resource_id}",
+        )
+
         add_thread_name(
             events,
             PID_RESOURCE,
             resource_tid(resource_id),
-            resource.get("NAME", f"resource#{resource_id}"),
+            resource_name,
         )
+
+        if not resource_name.startswith("Dummy"):
+            instant(
+                "CONFIGURED",
+                "autosar.resource.config",
+                0,
+                PID_RESOURCE,
+                resource_tid(resource_id),
+                {
+                    "resource": resource_name,
+                    "priority_ceiling": resource.get("PRIORITY"),
+                },
+            )
 
     # ------------------------------------------------------------
     # Event tracks
@@ -283,6 +340,19 @@ def main():
                 PID_EVENT,
                 perfetto_event_tid(tid),
                 f"{task.get('NAME', f'task#{task_id}')}:{event_name}",
+            )
+
+            instant(
+                "CONFIGURED",
+                "autosar.event.config",
+                0,
+                PID_EVENT,
+                perfetto_event_tid(tid),
+                {
+                    "task": task.get("NAME", f"task#{task_id}"),
+                    "event": event_name,
+                    "mask": mask,
+                },
             )
 
     def resolve_event_track(task_id, mask, event_name):
@@ -530,20 +600,59 @@ def main():
                     d.get("res_id", 0),
                 )
 
-                (instant_hires if record_hires_us is not None else instant)(
-                    "ACQUIRE"
-                    if typ == "RESOURCE_ACQUIRE"
-                    else "RELEASE",
-                    "autosar.resource",
-                    record_hires_us if record_hires_us is not None else ts,
-                    PID_RESOURCE,
-                    resource_tid(resource_id),
-                    {
+                tid = resource_tid(resource_id)
+
+                if typ == "RESOURCE_ACQUIRE":
+                    use_hires = record_hires_us is not None
+                    extra = {
                         "autosar_resource_id": resource_id,
                         "resource": d.get("resource"),
                         "owner": d.get("owner"),
-                    },
-                )
+                    }
+
+                    if use_hires:
+                        begin_hires(
+                            "HELD",
+                            "autosar.resource",
+                            record_hires_us,
+                            PID_RESOURCE,
+                            tid,
+                            extra,
+                        )
+                    else:
+                        begin(
+                            "HELD",
+                            "autosar.resource",
+                            ts,
+                            PID_RESOURCE,
+                            tid,
+                            extra,
+                        )
+
+                    held_resources.setdefault(tid, []).append(use_hires)
+                else:
+                    held = held_resources.get(tid, [])
+
+                    if held:
+                        use_hires = held.pop()
+
+                        if use_hires and record_hires_us is not None:
+                            end_hires(record_hires_us, PID_RESOURCE, tid)
+                        else:
+                            end(ts, PID_RESOURCE, tid)
+                    else:
+                        (instant_hires if record_hires_us is not None else instant)(
+                            "RELEASE_UNMATCHED",
+                            "autosar.resource",
+                            record_hires_us if record_hires_us is not None else ts,
+                            PID_RESOURCE,
+                            tid,
+                            {
+                                "autosar_resource_id": resource_id,
+                                "resource": d.get("resource"),
+                                "owner": d.get("owner"),
+                            },
+                        )
 
     # ------------------------------------------------------------
     # Close RUNNING slices at capture boundary
@@ -557,6 +666,15 @@ def main():
         else:
             end(last_ts, PID_TASK, tid)
 
+    for tid, held in held_resources.items():
+        while held:
+            use_hires = held.pop()
+
+            if use_hires and last_hires_us is not None:
+                end_hires(last_hires_us, PID_RESOURCE, tid)
+            else:
+                end(last_ts, PID_RESOURCE, tid)
+
     final_records = deriver.finalize(trace_incomplete)
 
     derived_count += len(final_records)
@@ -569,7 +687,7 @@ def main():
         "traceEvents": events,
         "displayTimeUnit": "ms",
         "metadata": {
-            "schema": "linux-autosar-perfetto-v2",
+            "schema": "linux-autosar-perfetto-v3",
             "source": "Linux AUTOSAR Trampoline POSIX",
             "raw_records": raw_count,
             "derived_records": derived_count,
