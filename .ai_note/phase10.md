@@ -5,7 +5,12 @@
 ```text
 PHASE 9: COMPLETE / PASS / GOLDEN
 PHASE 10.1: COMPLETE / PASS
-CURRENT NEXT STEP: Phase 10.2 AUTOSAR OS Fault Injection
+PHASE 10.2: COMPLETE / PASS / GOLDEN REGRESSION PASS
+PHASE 10.3: COMPLETE / PASS
+PHASE 10.4: COMPLETE / PASS
+PHASE 10.5: COMPLETE / PASS
+PHASE 10.6: COMPLETE / PASS
+CURRENT NEXT STEP: Final Phase 10 documentation / closeout
 ```
 
 ## Objective
@@ -283,34 +288,588 @@ handling framework or Golden architecture change is required.
 [PASS] no production behavior modified
 ```
 
-## Cleanup State
+## Phase 10.2 - AUTOSAR OS Fault Injection
+
+### Results
+
+| Test | Expected | Observed | Result |
+| --- | --- | --- | --- |
+| `FI-OS-01` self `ActivateTask(App_Task)` while active | `E_OS_LIMIT` | return `4`, ErrorHook `0 -> 1`, error `4`, service `12` | PASS |
+| `FI-OS-02` duplicate `GetResource(Phase10_ResourceA)` | `E_OS_ACCESS` | first `0`, second `1`, release `0`, ErrorHook `1 -> 2`, service `24` | PASS |
+| `FI-OS-03` wrong-order nested `ReleaseResource()` | `E_OS_NOFUNC` | wrong release `5`, cleanup `0`, ErrorHook `2 -> 3`, service `9` | PASS |
+| Cleanup and baseline restoration | Golden regression | clean generation/build/runtime PASS | PASS |
+
+### ErrorHook and Fault Evidence
+
+The existing bounded Phase 7 ErrorHook was reused without adding printf,
+file/socket I/O, blocking, allocation, or heavy monitoring.
 
 ```text
-no Phase 10 injection code introduced
-no Phase 10 test resources in Golden OIL
-no active fault injection
-no stress workload
-no modified production alarms or priorities
-no Trampoline changes for Phase 10
+E_OS_LIMIT   : hook 0 -> 1, error=4, service=12
+E_OS_ACCESS  : hook 1 -> 2, error=1, service=24
+E_OS_NOFUNC  : hook 2 -> 3, error=5, service=9
 ```
 
-## Limitations
+Each deliberate fault produced exactly one new ErrorHook invocation.
+`App_Task` continued after `E_OS_LIMIT`; duplicate resource acquisition
+left the original ownership valid; wrong-order release left nested
+resources valid for subsequent cleanup. DDS processing continued after
+the resource-fault experiments.
 
-Phase 10.1 establishes capability and test design only. It does not yet
-provide execution evidence for Phase 10.2 faults or later CPU, stack,
-allocation, DDS, and integrated stress experiments.
+### Temporary Test Configuration
 
-## Next Step
+Dedicated temporary resources were used:
 
-Proceed to Phase 10.2 with only the minimum test-only control required to
-execute `FI-OS-01`, then collect ErrorHook/API evidence, cleanly disable
-the injection, and run the Golden regression before selecting the next
-fault.
+```text
+Phase10_ResourceA
+Phase10_ResourceB
+```
+
+Production resources were not used for deliberate faults:
+
+```text
+OsResource_DdsMain
+OsResource_DdsTimer
+OsResource_DdsNetio
+```
+
+An intermediate OIL-changing build exposed stale generated output through
+`Phase10_ResourceA undeclared`. Explicit GOIL regeneration was then run:
+
+```bash
+"$GOIL" --templates="$GOIL_TEMPLATES" --target=posix \
+        config/os/autosar_virtual.oil
+```
+
+The regenerated declarations/descriptors included both Phase 10 resources
+and the clean build succeeded. The earlier stale-output cause was not
+independently proven; this result is not evidence that `--log-file-read`
+is defective.
+
+### Cleanup and Golden Regression
+
+The temporary changes to `config/os/task_impl.c` and
+`config/os/autosar_virtual.oil` were restored to the committed Golden
+state. The final `App_Task` is again:
+
+```c
+TASK(App_Task)
+{
+        VirtualAswc_Run();
+        TerminateTask();
+}
+```
+
+Final regression evidence:
+
+```text
+[PASS] Phase10 resources removed
+[PASS] fault-injection code removed
+[PASS] Golden GOIL generation
+[PASS] Golden clean build
+[PASS] no Phase10 runtime output
+[PASS] normal DDS Read/Write
+[PASS] no injected OS errors
+[PASS] normal Ctrl+C termination
+```
+
+## Phase 10.2 Final Result
+
+```text
+FI-OS-01  E_OS_LIMIT    PASS
+FI-OS-02  E_OS_ACCESS   PASS
+FI-OS-03  E_OS_NOFUNC   PASS
+
+FAULT OBSERVATION        PASS
+ERRORHOOK CORRELATION    PASS
+FAULT RECOVERY           PASS
+DDS CONTINUITY           PASS
+TEST RESOURCE ISOLATION  PASS
+TEST CLEANUP             PASS
+GOLDEN CLEAN BUILD       PASS
+GOLDEN RUNTIME           PASS
+
+PHASE 10.2: COMPLETE / PASS
+```
+
+## Phase 10.3 - Scheduling / CPU Stress
+
+### ST-CPU-01 - Bounded CPU Workload
+
+A temporary finite workload was executed from `App_Task`:
+
+```c
+volatile unsigned long phase10_work = 0UL;
+unsigned long i;
+
+for (i = 0UL; i < 10000000UL; ++i)
+{
+        phase10_work += i;
+}
+```
+
+The Phase 8 derived trace showed the expected real preemption/resume
+sequence:
+
+```text
+DISPATCH_NEW App_Task
+ALARM_EXPIRE TcpIp_5ms_Alarm
+ACTIVATE TcpIp_Task
+PREEMPT App_Task
+DISPATCH_NEW TcpIp_Task
+TERMINATE TcpIp_Task
+RESUME App_Task
+TERMINATE App_Task
+```
+
+Result:
+
+```text
+ST-CPU-01: PASS
+```
+
+The bounded workload was removed after validation.
+
+### ST-CPU-02 - Periodic Activation Overrun
+
+A dedicated temporary task and alarm were used, preserving production
+DDS/TcpIp task periods:
+
+```text
+Phase10CpuStressAlarm
+    period     = 10 ms
+    task       = Phase10CpuStress_Task
+
+Phase10CpuStress_Task
+    priority   = 2
+    ACTIVATION = 1
+    SCHEDULE   = FULL
+```
+
+The unloaded baseline completed before each next 10 ms activation. A
+finite 30,000,000-iteration workload was then added. Some activations
+crossed the next alarm boundary, repeatedly producing this condition:
+
+```text
+task activation remains active at the next alarm expiry
+-> ACTIVATION = 1 prevents another queued activation
+-> ActivateTask returns E_OS_LIMIT
+-> ErrorHook records error=4, service_id=12
+```
+
+Representative trace evidence showed the alarm expiring while the stress
+task remained active, followed by continued preemption/resume activity.
+Observed ErrorHook counts increased from zero through repeated
+`E_OS_LIMIT` records with `service_id=12`.
+
+Result:
+
+```text
+ST-CPU-02: PASS
+```
+
+`E_OS_LIMIT` here is an activation-capacity observation, not an
+execution-budget or timing-protection violation.
+
+### Phase 10.3 Cleanup and Golden Regression
+
+The temporary `Phase10CpuStressAlarm`, `Phase10CpuStress_Task`, bounded
+workloads, and temporary ErrorHook-state reporting were removed. GOIL was
+rerun and generated artifacts were checked to ensure no
+`Phase10CpuStress` declarations remained.
+
+Final regression:
+
+```text
+Golden regeneration: PASS
+Golden build:        PASS
+Golden runtime:      PASS
+Phase 8 trace:       PASS
+trace_incomplete=no
+no Phase10CpuStress activity
+```
+
+### Phase 10.3 Acceptance
+
+```text
+[PASS] bounded CPU workload introduced and removed
+[PASS] higher-priority TcpIp task preempted App_Task
+[PASS] stressed task resumed after preemption
+[PASS] unloaded 10 ms task baseline validated
+[PASS] bounded workload exceeded activation period
+[PASS] activation overlap caused E_OS_LIMIT
+[PASS] ErrorHook recorded ActivateTask service ID 12
+[PASS] temporary task/alarm and generated artifacts removed
+[PASS] Golden regression passed after cleanup
+```
+
+### Trace Inspection Rule
+
+For complete scheduling analysis, parse without the runtime monitor's
+display limit before filtering:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+        trace.json \
+        --static-info autosar_virtual/tpl_static_info.json \
+        --derived \
+        --limit 0
+```
+
+Then use `grep` for task/alarm filtering, `head` or `tail` for selected
+records, and `sed` for causal time windows. Do not infer event absence
+from the default limited output.
+
+### Phase 10.3 Final Result
+
+```text
+ST-CPU-01  bounded preemption/resume       PASS
+ST-CPU-02  periodic activation overrun     PASS
+CPU STRESS OBSERVATION                     PASS
+ERRORHOOK CORRELATION                      PASS
+TEST CLEANUP                               PASS
+GOLDEN REGENERATION                        PASS
+GOLDEN BUILD                               PASS
+GOLDEN RUNTIME                             PASS
+
+PHASE 10.3: COMPLETE / PASS
+```
+
+## Phase 10.4 - Stack Stress / Fault Injection
+
+### Objective and Method
+
+Phase 10.4 validated the Phase 9 project-owned task stack high-water
+monitor with bounded local stack consumption. The Trampoline built-in
+`STACKMONITORING` mechanism was not enabled; no stack overflow or crash was
+intended.
+
+`App_Task` (`task_id=3`) was selected. Its Golden stack allocation is:
+
+```text
+allocated_bytes = 32768
+Golden used_high_water_bytes = 4568
+Golden free_high_water_bytes = 28200
+Golden utilization = 13.9%
+```
+
+A temporary 8192-byte volatile local buffer was fully touched from
+`App_Task`:
+
+```c
+volatile unsigned char phase10_stack_pressure[8192];
+```
+
+The memory snapshot was written by a subsequent `App_Task` activation,
+after the stressed activation had terminated. This preserved the explicit
+Phase 9 diagnostic snapshot API design and measured the retained HWM.
+
+### ST-STK-01 Result
+
+```text
+allocated_bytes        = 32768
+used_high_water_bytes  = 12792
+free_high_water_bytes  = 19976
+utilization            = 39.0%
+```
+
+Compared with the Golden baseline:
+
+```text
+used high-water delta = +8224 bytes
+free high-water delta = -8224 bytes
+utilization delta     = +25.1 percentage points
+```
+
+The additional 32 bytes beyond the explicit buffer are consistent with
+normal stack-frame/local-variable overhead. The stack invariant remained:
+
+```text
+allocated = used + free
+```
+
+Result:
+
+```text
+ST-STK-01 bounded stack stress: PASS
+Phase 9 stack HWM detection:    PASS
+```
+
+### Runtime Monitor and Threshold
+
+The existing Phase 9 monitor analyzed the temporary snapshot with a 30%
+warning threshold:
+
+```bash
+python3 tools/runtime_monitor/runtime_monitor.py \
+    trace.json \
+    --static-info autosar_virtual/tpl_static_info.json \
+    --memory memory_snapshot_phase10_4.json \
+    --stack-warn-percent 30 \
+    --derived \
+    --limit 0
+```
+
+Observed result:
+
+```text
+STACK App_Task utilization=39.0% threshold=30.0%
+```
+
+Other tasks also exceeded this diagnostic threshold during the longer
+runtime; the causal target remained the controlled `App_Task` injection.
+
+```text
+Phase 9 memory view integration: PASS
+Stack threshold detection:       PASS
+```
+
+### Cleanup and Golden Regression
+
+The temporary stack buffer, snapshot probe, temporary include, and
+`memory_snapshot_phase10_4.json` runtime path were removed. `App_Task` was
+restored to its Golden implementation, and no Phase 10.4 logic remains in
+the production task path.
+
+GOIL regeneration and the normal Golden workflow completed successfully:
+
+```text
+Golden generation:        PASS
+Golden build:              PASS
+Golden runtime:            PASS
+Phase 8 trace regression:  PASS
+trace_incomplete=no
+last timestamp             = 5815
+raw_records / derived      = 21038 / 21038
+```
+
+### Phase 10.4 Acceptance
+
+```text
+[PASS] bounded App_Task stack pressure introduced
+[PASS] task stack HWM increased without overflow
+[PASS] allocated = used + free invariant preserved
+[PASS] Phase 9 runtime monitor displayed the stressed task
+[PASS] 30% threshold warning generated
+[PASS] temporary probe and snapshot path removed
+[PASS] Golden regeneration/build/runtime regression passed
+
+PHASE 10.4: COMPLETE / PASS
+```
+
+## Phase 10.5 - Memory Stress / Fault Injection
+
+### Objective and Method
+
+Phase 10.5 validated the existing Phase 9 process and glibc memory
+monitoring with a bounded dynamic-memory lifecycle. A temporary
+`App_Task` probe performed:
+
+```text
+baseline snapshot
+-> malloc(1 MiB)
+-> touch all allocated pages
+-> stress snapshot while allocation is live
+-> free()
+-> recovery snapshot
+```
+
+The Phase 9 snapshot API and existing `/proc/self/status` plus `mallinfo2`
+observations were reused without redesign.
+
+### ST-MEM-01 Measurement
+
+The 1 MiB allocation was explicitly touched so the test exercised
+resident memory rather than only virtual address reservation.
+
+Process-level results:
+
+| Metric | Baseline | Stress | Recovery |
+| --- | ---: | ---: | ---: |
+| `VmRSS` | 3104 KB | 4264 KB | 3236 KB |
+| `VmHWM` | 3104 KB | 4264 KB | 4128 KB |
+| `VmSize` | 70248 KB | 71276 KB | 70248 KB |
+| `VmData` | 66012 KB | 67040 KB | 66012 KB |
+
+Stress deltas:
+
+```text
+VmRSS   +1160 KB
+VmSize  +1028 KB
+VmData  +1028 KB
+```
+
+After `free()`, `VmSize` and `VmData` returned exactly to baseline and
+`VmRSS` returned close to baseline. Exact RSS restoration is not required
+because Linux page/accounting activity can vary.
+
+glibc allocator results:
+
+| Metric | Baseline | Stress | Recovery |
+| --- | ---: | ---: | ---: |
+| arena bytes | 135168 B | 135168 B | 135168 B |
+| used bytes | 8112 B | 8112 B | 8112 B |
+| free bytes | 127056 B | 127056 B | 127056 B |
+| mmap bytes | 0 B | 1052672 B | 0 B |
+
+The key allocation/release evidence was:
+
+```text
+glibc mmap_bytes
+0 -> 1052672 -> 0
+```
+
+The requested 1,048,576-byte allocation was serviced through a separate
+mmap-backed allocation. The observed 1,052,672 bytes include allocator
+and page-management overhead.
+
+### VmHWM Limitation
+
+The recovery snapshot reported `VmHWM = 4128 KB`, below the stress value
+of `4264 KB`. Since `/proc/self/status` `VmHWM` would normally be a
+process high-water mark, this is retained as a measurement anomaly and
+is not used as the primary PASS criterion. Allocation/free detection is
+independently demonstrated by `glibc mmap_bytes`, `VmSize`, `VmData`, and
+`VmRSS`.
+
+### Cleanup and Golden Regression
+
+The temporary allocation probe, snapshot calls, symbols, and
+`memory_snapshot_phase10_5.json` path were removed. `App_Task` was
+restored to the Golden implementation and no Phase 10.5 instrumentation
+remains in the production source tree.
+
+The normal generation/build workflow and Golden runtime regression passed:
+
+```text
+Golden generation: PASS
+Golden build:      PASS
+Golden runtime:    PASS
+trace_incomplete:  no
+last timestamp:    6251
+raw_records:       22627
+derived_records:   22627
+```
+
+The repository retained only the expected Phase 10 note change and the
+pre-existing Trampoline 1 ms timer dependency.
+
+### Phase 10.5 Acceptance
+
+```text
+[PASS] bounded 1 MiB allocation introduced
+[PASS] allocation remained live during stress snapshot
+[PASS] allocated pages were touched
+[PASS] Phase 9 process-memory increase detected
+[PASS] Phase 9 glibc mmap allocation detected
+[PASS] allocation release and recovery detected
+[PASS] VmHWM anomaly documented and excluded from primary criterion
+[PASS] temporary probe and snapshot path removed
+[PASS] Golden source restoration and generation/build passed
+[PASS] Golden runtime regression passed
+
+ST-MEM-01: COMPLETE / PASS
+```
+
+## Phase 10.6 - DDS / Network Stress
+
+### Objective and Method
+
+Phase 10.6 validated bounded DDS/network stress on the existing Golden
+architecture without modifying generated CDD code, DDS adapter logic,
+PSL/PIL internals, transport configuration, or the 5 ms `TcpIp_Task`
+behavior.
+
+The stress used the real data-write path:
+
+```text
+DdsCddReadWrite_Task
+    -> DdsCddWrite_Cabin_Door_PDIO_FL()
+    -> RTI DDS Micro DataWriter
+    -> RTI AUTOSAR PSL / PIL
+    -> Virtual AUTOSAR TcpIp
+    -> UDP / RTPS
+    -> Windows DDS host
+```
+
+A temporary one-shot DDS burst was injected in the project-owned source,
+then removed after validation. The burst was bounded to exactly ten
+application DATA writes and was observed on the real RTPS/UDP path.
+
+### ST-NET-01 Measurement
+
+The burst was observed on port 8911 as ten consecutive 84-byte RTPS DATA
+packets, each with `RTPS` header and submessage `0x15`. Sequence numbers
+were continuous:
+
+```text
+1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
+```
+
+The higher-priority 5 ms `TcpIp_Task` remained schedulable during the
+stress. Representative trace evidence:
+
+```text
+ts=2005 ALARM_EXPIRE TcpIp_5ms_Alarm -> TcpIp_Task
+ts=2005 ACTIVATE TcpIp_Task
+ts=2005 PREEMPT DdsCddReadWrite_Task
+ts=2005 DISPATCH_NEW TcpIp_Task
+ts=2005 TERMINATE TcpIp_Task
+ts=2005 RESUME DdsCddReadWrite_Task
+```
+
+The stress trace remained complete and parseable:
+
+```text
+raw_records      = 11571
+derived_records  = 11571
+parser_warnings  = 1
+trace_incomplete = no
+```
+
+### Cleanup and Golden Regression
+
+The temporary source modification was restored from backup and removed
+from the project tree. No ST-NET-01 code remained in the Golden runtime.
+
+The standard Golden workflow was rerun successfully:
+
+```text
+Golden generation: PASS
+Golden build:      PASS
+Golden runtime:    PASS
+Phase 8 trace:     PASS
+trace_incomplete:  no
+```
+
+### Phase 10.6 Acceptance
+
+```text
+[PASS] real DDS DATA burst reached UDP/RTPS
+[PASS] ten application DATA writes observed
+[PASS] sequence numbers remained continuous
+[PASS] real application traffic distinguished from discovery traffic
+[PASS] existing DDS/TcpIp/PSL/PIL path preserved
+[PASS] 5 ms TcpIp_Task remained schedulable
+[PASS] temporary stress injection removed
+[PASS] Golden regeneration/build/runtime regression passed
+
+ST-NET-01: COMPLETE / PASS
+PHASE 10.6: COMPLETE / PASS
+```
 
 ## Final Phase 10 Completion
 
-Phase 10 may close only after selected experiments are reproducible,
-bounded, observable, cleaned up, and followed by a passing Golden
-regression covering runtime, DDS, Phase 8 trace, and Phase 9 memory
-monitoring. The final completion artifact must be an actual Markdown file
-named `phase10_<final>.md`.
+Phase 10 validated reproducible stress and fault behavior through the
+existing Phase 7 ErrorHook, Phase 8 trace, and Phase 9 memory monitoring
+infrastructure while preserving the Golden AUTOSAR/DDS architecture.
+
+The final completion artifact is the actual Markdown document:
+
+```text
+phase10_<final>.md
+```
+
+This Phase 10 note captures the completed subphase findings and the
+closed state for the documented Linux AUTOSAR Virtual PoC stress/fault
+campaign.
