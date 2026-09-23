@@ -94,6 +94,7 @@ def main():
 
     events = []
     running = {}
+    pending = {}
     held_resources = {}
 
     raw_count = 0
@@ -416,6 +417,14 @@ def main():
                 task_id = d["task_id"]
                 tid = task_tid(task_id)
 
+                if tid in pending:
+                    previous = pending.pop(tid)
+
+                    if previous["hires"] and record_hires_us is not None:
+                        end_hires(record_hires_us, PID_TASK, tid)
+                    else:
+                        end(ts, PID_TASK, tid)
+
                 if tid in running:
                     previous = running[tid]
 
@@ -509,6 +518,38 @@ def main():
                     )
 
             elif typ in ("ACTIVATE", "WAKEUP"):
+                if typ == "ACTIVATE":
+                    use_hires = record_hires_us is not None
+                    extra = {
+                        "task": d.get("task"),
+                        "autosar_task_id": d["task_id"],
+                        "state": "awaiting_dispatch",
+                    }
+
+                    if use_hires:
+                        begin_hires(
+                            "PENDING",
+                            "autosar.task.pending",
+                            record_hires_us,
+                            PID_TASK,
+                            task_tid(d["task_id"]),
+                            extra,
+                        )
+                    else:
+                        begin(
+                            "PENDING",
+                            "autosar.task.pending",
+                            ts,
+                            PID_TASK,
+                            task_tid(d["task_id"]),
+                            extra,
+                        )
+
+                    pending[task_tid(d["task_id"])] = {
+                        "ts": ts,
+                        "hires": use_hires,
+                    }
+
                 if record_hires_us is not None:
                     instant_hires(
                         typ,
@@ -660,6 +701,14 @@ def main():
 
     for tid in list(running):
         previous = running[tid]
+
+        if previous["hires"] and last_hires_us is not None:
+            end_hires(last_hires_us, PID_TASK, tid)
+        else:
+            end(last_ts, PID_TASK, tid)
+
+    for tid in list(pending):
+        previous = pending[tid]
 
         if previous["hires"] and last_hires_us is not None:
             end_hires(last_hires_us, PID_TASK, tid)
