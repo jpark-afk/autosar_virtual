@@ -51,6 +51,7 @@ extern void DdsCdd_LocalIpAddrAssignmentChg(
     TcpIp_IpAddrStateType State);
 
 static int TcpIp_TestSocket = -1;
+static boolean tcpip_initialized = FALSE;
 
 int main(void)
 {    
@@ -68,18 +69,21 @@ int main(void)
 
 TASK(RTI_Task)
 {
-    printf("[Virtual AUTOSAR] RTI_Task started\n");
-
-    DdsCdd_LocalIpAddrAssignmentChg(
-        (TcpIp_LocalAddrIdType)0U,
-        TCPIP_IPADDR_STATE_ASSIGNED);
+    printf("[Virtual AUTOSAR] RTI_Task started\n");    
 
     DdsCddStart();
+
+    DdsCdd_LocalIpAddrAssignmentChg(
+            (TcpIp_LocalAddrIdType)0U,
+            TCPIP_IPADDR_STATE_ASSIGNED);
+            
+    printf("[Bsw_InitTask] DdsCdd_LocalIpAddrAssignmentChg completed\n");
 
     printf("[Virtual AUTOSAR] DdsCddStart completed\n");
 
     TerminateTask();
 }
+
 
 static FILE *g_tcpip_log = NULL;
 
@@ -229,16 +233,11 @@ static void TcpIp_PollTx(void)
     }
 }
 
+
 TASK(TcpIp_Task)
 {
-    static boolean initialized = FALSE;
-
-    if (!initialized)
+    if (tcpip_initialized)
     {
-        TcpIp_Init();
-        initialized = TRUE;
-    }
-
     /*
      * 5 ms polling
      */
@@ -249,6 +248,18 @@ TASK(TcpIp_Task)
      * Optional TX test.
      */
     //TcpIp_PollTx();
+    }
+
+    TerminateTask();
+}
+
+TASK(Bsw_InitTask)
+{
+    if (!tcpip_initialized)
+    {
+        TcpIp_Init();
+        tcpip_initialized = TRUE;
+    }
 
     TerminateTask();
 }

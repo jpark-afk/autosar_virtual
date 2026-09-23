@@ -90,6 +90,6 @@ void Rte_IrTrigger_DdsCdd_RxIndication_ITP_DdsCdd_RxIndication(void)
 void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void)
 {
     (void)SetEvent(
-        DdsCddReadWrite_Task,
+        DdsCddWrite_Task,
         DdsCddTimerUpdateEvent);
 }

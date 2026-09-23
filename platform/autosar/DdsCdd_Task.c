@@ -23,10 +23,10 @@ TASK(DdsCddTimerTick_Task)
 }
 
 /* --------------------------------------------------------------------------
- * CDD Read/Write task
+ * CDD Write task
  * -------------------------------------------------------------------------- */
 
-TASK(DdsCddReadWrite_Task)
+TASK(DdsCddWrite_Task)
 {
     EventMaskType events;
 
@@ -34,9 +34,9 @@ TASK(DdsCddReadWrite_Task)
     {
         WaitEvent(
             DdsCddTimerUpdateEvent |
-            DdsCddPeriodicReadEvent);
+            DdsCddPeriodicWriteEvent);
 
-        GetEvent(DdsCddReadWrite_Task, &events);
+        GetEvent(DdsCddWrite_Task, &events);
 
         if ((events & DdsCddTimerUpdateEvent) != 0U)
         {
@@ -45,14 +45,36 @@ TASK(DdsCddReadWrite_Task)
             DdsCddTimerUpdate();
         }
 
-        if ((events & DdsCddPeriodicReadEvent) != 0U)
+        if ((events & DdsCddPeriodicWriteEvent) != 0U)
         {
-            ClearEvent(DdsCddPeriodicReadEvent);
+            ClearEvent(DdsCddPeriodicWriteEvent);
 
             if (Rte_ConsumeDataReceived_Cabin_Door_PDIO_FL() != FALSE)
             {
                 DdsCddWrite_Cabin_Door_PDIO_FL();
             }
+
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------
+ * CDD Read task
+ * -------------------------------------------------------------------------- */
+
+TASK(DdsCddRead_Task)
+{
+    EventMaskType events;
+
+    for (;;)
+    {
+        WaitEvent(DdsCddPeriodicReadEvent);
+
+        GetEvent(DdsCddRead_Task, &events);
+
+        if ((events & DdsCddPeriodicReadEvent) != 0U)
+        {
+            ClearEvent(DdsCddPeriodicReadEvent);
 
             DdsCddRead_GCS_LEFT_2_PDIO_FL();
         }

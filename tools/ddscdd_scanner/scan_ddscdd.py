@@ -1220,7 +1220,7 @@ def generate_rte_ddscdd_type_source(
     
     fixed_internal_trigger_map = {
         "TimerUpdate": (
-            "DdsCddReadWrite_Task",
+            "DdsCddWrite_Task",
             "DdsCddTimerUpdateEvent",
         ),
         "ProcessData": (
@@ -1425,10 +1425,10 @@ def generate_ddscdd_task_source(
         "}",
         "",
         "/* --------------------------------------------------------------------------",
-        " * CDD Read/Write task",
+        " * CDD Write task",
         " * -------------------------------------------------------------------------- */",
         "",
-        "TASK(DdsCddReadWrite_Task)",
+        "TASK(DdsCddWrite_Task)",
         "{",
         "    EventMaskType events;",
         "",
@@ -1436,9 +1436,9 @@ def generate_ddscdd_task_source(
         "    {",
         "        WaitEvent(",
         "            DdsCddTimerUpdateEvent |",
-        "            DdsCddPeriodicReadEvent);",
+        "            DdsCddPeriodicWriteEvent);",
         "",
-        "        GetEvent(DdsCddReadWrite_Task, &events);",
+        "        GetEvent(DdsCddWrite_Task, &events);",
         "",
         "        if ((events & DdsCddTimerUpdateEvent) != 0U)",
         "        {",
@@ -1447,9 +1447,9 @@ def generate_ddscdd_task_source(
         f'            {timer_update["target_c_runnable"]}();',
         "        }",
         "",
-        "        if ((events & DdsCddPeriodicReadEvent) != 0U)",
+        "        if ((events & DdsCddPeriodicWriteEvent) != 0U)",
         "        {",
-        "            ClearEvent(DdsCddPeriodicReadEvent);",
+        "            ClearEvent(DdsCddPeriodicWriteEvent);",
         "",
     ])
 
@@ -1466,6 +1466,31 @@ def generate_ddscdd_task_source(
             "            }",
             "",
         ])
+
+    lines.extend([
+        "        }",
+        "    }",
+        "}",
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD Read task",
+        " * -------------------------------------------------------------------------- */",
+        "",
+        "TASK(DdsCddRead_Task)",
+        "{",
+        "    EventMaskType events;",
+        "",
+        "    for (;;)",
+        "    {",
+        "        WaitEvent(DdsCddPeriodicReadEvent);",
+        "",
+        "        GetEvent(DdsCddRead_Task, &events);",
+        "",
+        "        if ((events & DdsCddPeriodicReadEvent) != 0U)",
+        "        {",
+        "            ClearEvent(DdsCddPeriodicReadEvent);",
+        "",
+    ])
 
     for entry in periodic_runnables:
         lines.append(

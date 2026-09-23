@@ -480,7 +480,7 @@ int DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL(GCS_LEFT_2_PDIO_FL_t* rte_data)
     else
     {
         /* No valid data available */
-        printf("DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL: DDS data not valid\n");
+        //printf("DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL: DDS data not valid\n");
         return -1;
     }
 }

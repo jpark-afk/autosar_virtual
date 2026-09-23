@@ -90,8 +90,8 @@ CPU autosar_virtual {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 10;
-            CYCLETIME = 10;
+            ALARMTIME = 100;
+            CYCLETIME = 100;
             APPMODE = stdAppmode;
         };
 
@@ -100,27 +100,42 @@ CPU autosar_virtual {
         };
     };
 
-    ALARM DdsCddReadWriteAlarm {
+    ALARM DdsCddWriteAlarm {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 1000;
-            CYCLETIME = 1000;
+            ALARMTIME = 125;
+            CYCLETIME = 500;
             APPMODE = stdAppmode;
         };
 
         ACTION = SETEVENT {
-            TASK = DdsCddReadWrite_Task;
+            TASK = DdsCddWrite_Task;
+            EVENT = DdsCddPeriodicWriteEvent;
+        };
+    };
+
+    ALARM DdsCddReadAlarm {
+        COUNTER = SystemCounter;
+
+        AUTOSTART = TRUE {
+            ALARMTIME = 120;
+            CYCLETIME = 500;
+            APPMODE = stdAppmode;
+        };
+
+        ACTION = SETEVENT {
+            TASK = DdsCddRead_Task;
             EVENT = DdsCddPeriodicReadEvent;
         };
     };
 
-    ALARM TcpIp_5ms_Alarm {
+    ALARM TcpIp_Alarm {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 5;
-            CYCLETIME = 5;
+            ALARMTIME = 50;
+            CYCLETIME = 50;
             APPMODE = stdAppmode;
         };
 
@@ -133,7 +148,7 @@ CPU autosar_virtual {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 1000;
+            ALARMTIME = 1250;
             CYCLETIME = 1000;
             APPMODE = stdAppmode;
         };
@@ -146,7 +161,7 @@ CPU autosar_virtual {
 /* TASK */
 
     TASK RTI_Task {
-        PRIORITY = 9;
+        PRIORITY = 11;
         AUTOSTART = TRUE {
             APPMODE = stdAppmode;
         };
@@ -155,9 +170,19 @@ CPU autosar_virtual {
 
         RESOURCE = OsResource_DdsMain;
         RESOURCE = OsResource_DdsTimer;
+        RESOURCE = OsResource_DdsNetio;
         
         EVENT = RTI_GiveEvent;
         EVENT = RTI_TimeoutEvent;
+    };
+
+    TASK Bsw_InitTask {
+        PRIORITY = 12;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
     };
 
     TASK TcpIp_Task {
@@ -168,7 +193,6 @@ CPU autosar_virtual {
         ACTIVATION = 1;
         SCHEDULE = FULL;
         RESOURCE = OsResource_DdsNetio;
-        RESOURCE = OsResource_DdsMain;
     };
 
     TASK App_Task {
@@ -186,6 +210,10 @@ CPU autosar_virtual {
     };
 
     EVENT DdsCddPeriodicReadEvent {
+        MASK = AUTO;
+    };
+
+    EVENT DdsCddPeriodicWriteEvent {
         MASK = AUTO;
     };
 
@@ -214,7 +242,7 @@ CPU autosar_virtual {
         RESOURCE = OsResource_DdsTimer;
     };
 
-    TASK DdsCddReadWrite_Task {
+    TASK DdsCddWrite_Task {
         PRIORITY = 3;
 
         AUTOSTART = TRUE {
@@ -225,6 +253,22 @@ CPU autosar_virtual {
         SCHEDULE = FULL;
 
         EVENT = DdsCddTimerUpdateEvent;
+        EVENT = DdsCddPeriodicWriteEvent;
+
+        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsTimer;
+    };
+
+    TASK DdsCddRead_Task {
+        PRIORITY = 3;
+
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+
         EVENT = DdsCddPeriodicReadEvent;
 
         RESOURCE = OsResource_DdsMain;

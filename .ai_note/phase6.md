@@ -94,7 +94,8 @@ The file contained:
 
 ```text
 DdsCddTimerTick_Task
-DdsCddReadWrite_Task
+DdsCddWrite_Task
+DdsCddRead_Task
 DdsCddProcessData_Task
 ```
 
@@ -324,9 +325,19 @@ The current periodic configuration is intentionally fixed.
 In particular:
 
 ```text
-DdsCddReadWriteAlarm
-    -> fixed 1-second period
+DdsCddWriteAlarm
+    -> DdsCddPeriodicWriteEvent
+    -> DdsCddWrite_Task
+
+DdsCddReadAlarm
+    -> DdsCddPeriodicReadEvent
+    -> DdsCddRead_Task
 ```
+
+Both alarms use the fixed 500 ms period. The Read and Write tasks are
+Extended tasks with the same priority and fixed resources as the prior
+combined task. `DdsCddTimerUpdateEvent` remains handled by
+`DdsCddWrite_Task`.
 
 Dynamic timing or general scheduling generation is not part of Phase 6.
 
@@ -532,6 +543,8 @@ Phase 6 does not provide:
 Phase 4 Golden baseline preserved             PASS
 CDD-specific Task generation                  PASS
 DdsCdd_Task.c generated                       PASS
+CDD Read/Write task split                      PASS
+CDD Read/Write alarms and events split         PASS
 VirtualAswc.c/.h generated                    PASS
 Generic task_impl.c CDD Task removal         PASS
 Generic task_impl.c datatype removal          PASS
