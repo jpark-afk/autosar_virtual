@@ -21,6 +21,7 @@
 #include "netio/netio_common.h"
 #include "netio/netio_udp.h"
 #include "osapi/osapi_system.h"
+#include "rti_me_psl/ospsl/ospsl_os_autosar_log.h"
 
 #include <ctype.h>
 
@@ -66,21 +67,7 @@
 * DdsImpl_CreateEntities() and persists for application lifetime. Must be enabled
 * explicitly via DdsImpl_EnableEntities() before communication can begin.
 */
-static struct Application *application = NULL;
-
-#if (OSAPI_ENABLE_LOG == 1 && OSAPI_ENABLE_TRACE == 1)
-/**
-* @brief Custom log write function for RTI DDS Micro logging
-* 
-* Routes DDS log messages through printf for output.
-* 
-* @param buffer Log message buffer
-* @param length Length of the message
-*/
-void my_log_write_function(const char* buffer, RTI_SIZE_T length) {
-    printf("%s\n", buffer);
-}
-#endif
+RTI_PRIVATE struct Application *DdsImpl_fv_Application = NULL;
 
 int DdsImpl_CreateEntities()
 {
@@ -92,23 +79,18 @@ int DdsImpl_CreateEntities()
 
 #if (OSAPI_ENABLE_LOG == 1 && OSAPI_ENABLE_TRACE == 1)
     /* Configure RTI DDS Micro logging */
-    struct OSAPI_LogProperty property;
-    OSAPI_Log_get_property(&property);
-    property.write_buffer = my_log_write_function;
-    OSAPI_Log_set_verbosity(OSAPI_LOG_VERBOSITY_SILENT);
-    if (!OSAPI_Log_set_property(&property)) {
-        printf("Failed to set log property\n");
-    }
+    OSAPI_Log_set_verbosity(OSAPI_LOG_VERBOSITY_ERROR);
 #endif
 
     OSAPI_Heap_allocate_buffer(
-            (char **)&application,
+            (char **)&DdsImpl_fv_Application,
             sizeof(struct Application),
             OSAPI_ALIGNMENT_DEFAULT);
-    if (application == NULL)
+    if (DdsImpl_fv_Application == NULL)
     {
-        printf("failed to allocate application\n");
-        return -1;
+        AUTOSAR_LOG_DDS_APPLICATION_ALLOCATION_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                return -1;
     }
 
     /* Retrieve Domain Participant Factory and registry */
@@ -119,22 +101,23 @@ int DdsImpl_CreateEntities()
     model_xml._model = APPGEN_get_library_seq();
     if (!APPGEN_Factory_register(registry, &model_xml))
     {
-        printf("DdsImpl_CreateEntities: failed to register Application Generation\n");
-        return -1;
+        AUTOSAR_LOG_DDS_APPGEN_REGISTER_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                return -1;
     }
 
     /* Create participant from XML profile */
     participant_name = "parlib::PDIO_FL_Domain_6";
-    application->PDIO_FL_Domain_6 =
+    DdsImpl_fv_Application->PDIO_FL_Domain_6 =
     DDS_DomainParticipantFactory_create_participant_from_config(
             factory,
             participant_name);
 
-    if (application->PDIO_FL_Domain_6 == NULL)
+    if (DdsImpl_fv_Application->PDIO_FL_Domain_6 == NULL)
     {
-        printf("DdsImpl_CreateEntities: failed to create participant %s\n",
-        participant_name);
-        return -1;
+        AUTOSAR_LOG_DDS_PARTICIPANT_CREATE_FAILED(
+                OSAPI_LOGKIND_ERROR, participant_name)
+                return -1;
     }
 
     return 0;
@@ -143,15 +126,17 @@ int DdsImpl_CreateEntities()
 int DdsImpl_EnableEntities(void)
 {
     DDS_ReturnCode_t retcode;
-    if (application == NULL) {
-        printf("DdsImpl_EnableEntities: application is NULL\n");      
+    if (DdsImpl_fv_Application == NULL) {
+        AUTOSAR_LOG_DDS_APPLICATION_UNAVAILABLE(OSAPI_LOGKIND_ERROR)
         return -1;
     }
-    retcode = DDS_Entity_enable(DDS_DomainParticipant_as_entity(application->PDIO_FL_Domain_6));
+    retcode = DDS_Entity_enable(DDS_DomainParticipant_as_entity(DdsImpl_fv_Application->PDIO_FL_Domain_6));
     if (retcode != DDS_RETCODE_OK) {
-        printf("DdsImpl_EnableEntities: Failed to enable participant "
-        "parlib::PDIO_FL_Domain_6\n");
-        return -1;
+        AUTOSAR_LOG_DDS_PARTICIPANT_ENABLE_FAILED(
+                OSAPI_LOGKIND_ERROR,
+                "parlib::PDIO_FL_Domain_6",
+                retcode)
+                return -1;
     }
 
     return 0;
@@ -170,18 +155,20 @@ int DdsImpl_Cabin_Door_PDIO_FL_WriteSample(const dds_Cabin_Door_PDIO_FL_t* dds_s
     }
 
     datawriter_untyped = DDS_DomainParticipant_lookup_datawriter_by_name(
-            application->PDIO_FL_Domain_6,
+            DdsImpl_fv_Application->PDIO_FL_Domain_6,
             datawriter_name);
     if (datawriter_untyped == NULL)
     {
-        printf("DdsImpl_Cabin_Door_PDIO_FL_WriteSample: datawriter_untyped == NULL\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ENDPOINT_RESOLVE_FAILED(
+                OSAPI_LOGKIND_ERROR, datawriter_name)
+                return -1;
     }
     datawriter = dds_Cabin_Door_PDIO_FL_tDataWriter_narrow(datawriter_untyped);
     if (datawriter == NULL)
     {
-        printf("DdsImpl_Cabin_Door_PDIO_FL_WriteSample: datawriter == NULL\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ENDPOINT_RESOLVE_FAILED(
+                OSAPI_LOGKIND_ERROR, datawriter_name)
+                return -1;
     }
 
     /* Write sample to DDS DataWriter */
@@ -192,8 +179,9 @@ int DdsImpl_Cabin_Door_PDIO_FL_WriteSample(const dds_Cabin_Door_PDIO_FL_t* dds_s
 
     if (retcode != DDS_RETCODE_OK)
     {
-        printf("DdsImpl_Cabin_Door_PDIO_FL_WriteSample: Failed to write sample, retcode(%d)\n", retcode);
-        return -1;
+        AUTOSAR_LOG_DDS_WRITE_SAMPLE_FAILED(
+                OSAPI_LOGKIND_ERROR, "Cabin_Door_PDIO_FL", retcode)
+                return -1;
     }
 
     return 0;
@@ -213,19 +201,21 @@ int DdsImpl_GCS_LEFT_2_PDIO_FL_TakeNextSample(dds_GCS_LEFT_2_PDIO_FL_t* dds_samp
     }
 
     datareader_untyped = DDS_DomainParticipant_lookup_datareader_by_name(
-            application->PDIO_FL_Domain_6, 
+            DdsImpl_fv_Application->PDIO_FL_Domain_6,
             datareader_name);
     if (datareader_untyped == NULL)
     {
-        printf("DdsImpl_GCS_LEFT_2_PDIO_FL_TakeNextSample: datareader_untyped == NULL\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ENDPOINT_RESOLVE_FAILED(
+                OSAPI_LOGKIND_ERROR, datareader_name)
+                return -1;
     }
 
     datareader = dds_GCS_LEFT_2_PDIO_FL_tDataReader_narrow(datareader_untyped);
     if (datareader == NULL)
     {
-        printf("DdsImpl_GCS_LEFT_2_PDIO_FL_TakeNextSample: datareader == NULL\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ENDPOINT_RESOLVE_FAILED(
+                OSAPI_LOGKIND_ERROR, datareader_name)
+                return -1;
     }
 
     *is_valid = 0;
@@ -244,8 +234,9 @@ int DdsImpl_GCS_LEFT_2_PDIO_FL_TakeNextSample(dds_GCS_LEFT_2_PDIO_FL_t* dds_samp
 
     if (retcode != DDS_RETCODE_OK)
     {
-        printf("DdsImpl_GCS_LEFT_2_PDIO_FL_TakeNextSample: Failed to take sample, retcode(%d)\n", retcode);
-        return -1;
+        AUTOSAR_LOG_DDS_TAKE_SAMPLE_FAILED(
+                OSAPI_LOGKIND_ERROR, "GCS_LEFT_2_PDIO_FL", retcode)
+                return -1;
     }
 
     /* Check if the sample contains valid data */

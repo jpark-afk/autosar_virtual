@@ -31,22 +31,10 @@
     * @see dds_cdd_adapter.h
     */
 
-    /* Workaround#VTT */
-    /* Pull RTI/Windows headers first to avoid AUTOSAR macro pollution. */
-#if defined(_WIN32) || defined(_WIN64) || defined(RTI_WIN32)
-#define SetEvent Win32_SetEvent
-#include "../dds_impl/dds_impl.h"
-#undef SetEvent
-#endif
-
 #include "dds_cdd_adapter.h"
-#include "../dds_gen/dds_system_conversions.h"
+#include "../dds_impl/dds_impl.h"
 
     /* RTI DDS Micro System Includes */
-#ifndef ospsl_os_autosar_h
-#include "rti_me_psl/ospsl/ospsl_os_autosar.h"
-#endif
-
 #ifndef osapi_system_h
 #include "osapi/osapi_system.h"
 #endif
@@ -55,17 +43,7 @@
 #include "netio/netio_common.h"
 #endif
 
-    /* Workaround#VTT */
-    /* __at(address) is a target-specific placement extension not supported by MSVC. */
-#if defined(_WIN32) || defined(_WIN64) || defined(RTI_WIN32)
-#if defined(_MSC_VER) && !defined(__at)
-#define __at(address)
-#endif
-#endif
-
-    /* workaround#COMMON - MICRO-14139- Some RTI Micro 4.3.0 header sets do not expose these prototypes publicly. */
-    RTI_BOOL OSPSL_AutosarSystem_get_property(struct OSAPI_SystemAutosar *property);
-    RTI_BOOL OSPSL_AutosarSystem_set_property(struct OSAPI_SystemAutosar *property);
+#include "rti_me_psl/ospsl/ospsl_os_autosar_log.h"
 
     /*==============================================================================
     *                        CONFIGURABLE SETTINGS
@@ -103,7 +81,7 @@
         * 
         * Contains size of each heap area. Update if DDSCDD_NUMBER_OF_HEAP_AREAS increased.
         */
-        static const uint32 heap_area_size[DDSCDD_NUMBER_OF_HEAP_AREAS] =
+        RTI_PRIVATE const uint32 heap_area_size[DDSCDD_NUMBER_OF_HEAP_AREAS] =
         {
             DDSCDD_CONNEXTDDSHEAP_SIZE
     };
@@ -113,15 +91,14 @@
     * 
     * Pre-allocated static buffer for DDS memory management.
     */
-    /* Workaround#HAE - MICRO-14140 - empty start_address doesn't need at() */
-    static char heap_area1[DDSCDD_CONNEXTDDSHEAP_SIZE];
+    RTI_PRIVATE char heap_area1[DDSCDD_CONNEXTDDSHEAP_SIZE];
 
     /**
     * @brief Array of pointers to DDS heap areas
     * 
     * Update if adding more heap areas.
     */
-    static char* const heap_area[DDSCDD_NUMBER_OF_HEAP_AREAS] =
+    RTI_PRIVATE char* const heap_area[DDSCDD_NUMBER_OF_HEAP_AREAS] =
     {
         heap_area1
     };
@@ -144,14 +121,15 @@
 * 
 * @warning Configuration values must match OS, TcpIp BSW settings.
 */
-static int SetSystemProperties(void)
+RTI_PRIVATE int SetSystemProperties(void)
 {
     struct OSAPI_SystemAutosar system_property;
 
     if (!OSPSL_AutosarSystem_get_property(&system_property))
     {
-        printf("failed to get system properties\n");
-        return -1;
+        AUTOSAR_LOG_DDS_SET_SYSTEM_PROPERTIES_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                return -1;
     }
 
     /* Task OSAPI_SystemAutosar_timer_task is configured to run every 10 ms */
@@ -161,14 +139,13 @@ static int SetSystemProperties(void)
     system_property.psl_property.number_of_heap_areas = DDSCDD_NUMBER_OF_HEAP_AREAS;
     system_property.psl_property.heap_area_size = heap_area_size;
     system_property.psl_property.heap_area = (const char **)heap_area;
-    /* workaround#HAE - MAG-463 -  enable use_udp_thread */
+    /* workaround#HAE - MAG-463 -  enable use_udp_thread (mobilgene specific) */
     system_property.psl_property.enable_thread_safe_heap =
     RTI_TRUE; /* TODO: Default is not thread safe, change to true if using multithread */
 
     /* Connext DDS Micro will use Resources as synchronization method */
     system_property.psl_property.sync_type = OSAPI_AUTOSAR_SYNCKIND_RESOURCES;
-    system_property.psl_property.mutex_resource_id = OsResource_DdsMain;
-    /* workaround#COMMON - PLATFORMS-6094 - task overrun issue */
+    system_property.psl_property.mutex_resource_id = OsResource_DdsMutex;
     system_property.psl_property.timer_resource_id = OsResource_DdsTimer;
     system_property.psl_property.netio_resource_id = OsResource_DdsNetio;
 
@@ -189,27 +166,26 @@ static int SetSystemProperties(void)
 #endif
 
     /* Disable internal UDP buffers - use AUTOSAR TcpIp stack buffers */
-    /* workaround#HAE - MAG-463 - enable use_udp_thread */
-    system_property.psl_property.number_of_rcv_buffers = 8u;
-    system_property.psl_property.rcv_buffer_size = 1500u;
+    system_property.psl_property.number_of_rcv_buffers = 20;
+    system_property.psl_property.rcv_buffer_size = 1024;
 
     /* Set AUTOSAR TcpIp integration callbacks */
     system_property.psl_property.get_socket = DdsCdd_GetSocket;
     system_property.psl_property.send_data = NULL;
-    system_property.psl_property.max_local_addr_id = 0;
+    system_property.psl_property.max_local_addr_id = 2;
 
     system_property.psl_property.send_local_addr_id = 0;
 
     /* Configure UDP thread handling - use synchronous mode for AUTOSAR */
-    /* workaround#HAE - MAG-463 - enable use_udp_thread */
     system_property.psl_property.use_udp_thread = TRUE;
     system_property.psl_property.dds_rxindication =
     DdsCddRxIndication;  /* TODO: Default name for dds rx indication, change if using custom callback */
 
     if (!OSPSL_AutosarSystem_set_property(&system_property))
     {
-        printf("failed to set system properties\n");
-        return -1;
+        AUTOSAR_LOG_DDS_SET_SYSTEM_PROPERTIES_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                return -1;
     }
 
     return 0;
@@ -222,8 +198,7 @@ static int SetSystemProperties(void)
 /**
 * @brief Current DDS initialization state (NOT configurable)
 */
-/* workaround#COMMON - MAG-438 - Init task overrun issue. Delete static keyword */
-DdsCdd_InitState_t dds_cdd_init_state = DdsCdd_InitState_Uninitialized;
+RTI_PRIVATE DdsCdd_InitState_t DdsCdd_fv_InitState = DdsCdd_InitState_Uninitialized;
 
 /*==============================================================================
 *                     SW-C RUNNABLE IMPLEMENTATIONS
@@ -236,144 +211,129 @@ DdsCdd_InitState_t dds_cdd_init_state = DdsCdd_InitState_Uninitialized;
 * @brief Initialize DDS adapter and create DDS entities
 * 
 * Performs initialization based on current state. Sets system properties,
-* creates DDS entities if TcpIp is ready. May be called multiple times;
+* creates DDS entities when uninitialized. May be called multiple times;
 * only executes state transitions when appropriate. Does not block.
 * 
-* @pre TcpIp stack must be initialized
 * @post DDS entities created but disabled if successful
 */
 void DdsCdd_Adapter_Init(void)
 {
     sint8 retval;
-    /* workaround#COMMON - MAG-438 - Init task overrun issue */
-    //printf("DDS_Init: Start Init DDS \n");
 
-    /* Check if TcpIp is ready */
-    //if (dds_cdd_init_state == DdsCdd_InitState_TcpIpNotReady || 
-    //    dds_cdd_init_state == DdsCdd_InitState_Error)
-    //{
-        //    printf("DDS_Init: TcpIp not ready or error state\n");
-        //    return;
-        //}
+    if (DdsCdd_fv_InitState != DdsCdd_InitState_Uninitialized)
+    {
+        return;
+    }
 
-    /* Set system properties */
-    /* workaround#COMMON - MAG-438 - Init task overrun issue */
-    //if (dds_cdd_init_state == DdsCdd_InitState_TcpIpReady)
-    //{
-        printf("DDS_Init: Setting system properties\n");
-        if (0 != SetSystemProperties())
-        {
-            printf("DDS_Init: Failed to set system properties\n");
-            dds_cdd_init_state = DdsCdd_InitState_Error;
-            return;
-        }
-        /* Workaround#COMMON - PLATFORMS-6163 - PIL option error */
-#if 0
-        //original implementation
-        else if(RTI_TRUE != OSAPI_System_initialize())
-        {
-            printf("DDS_Init: OSAPI_System initialization failed\n");
-            dds_cdd_init_state = DdsCdd_InitState_Error;
-            return;
-        }
-#else
-        //workaround
-        struct OSAPI_SystemProperty sys_prop = OSAPI_SystemProperty_INITIALIZER;
-        if (!OSAPI_System_get_property(&sys_prop))
-        {
-            // ERROR
-        }
-        sys_prop.max_user_blocking_threads = 0;
-        if (!OSAPI_System_set_property(&sys_prop))
-        {
-            // ERROR
-        }
-
-        if(RTI_TRUE != OSAPI_System_initialize())
-        {
-            printf("DDS_Init: OSAPI_System initialization failed\n");
-            dds_cdd_init_state = DdsCdd_InitState_Error;
-            return;
-        }
-#endif
-        else
-        {
-            printf("DDS_Init: System properties set successfully and OSAPI_System initialized\n");
-            dds_cdd_init_state = DdsCdd_InitState_SystemPropertiesSet;
-        }
-        //}
+    if (0 != SetSystemProperties())
+    {
+        AUTOSAR_LOG_DDS_SET_SYSTEM_PROPERTIES_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                DdsCdd_fv_InitState = DdsCdd_InitState_Error;
+        return;
+    }
+    else if(RTI_TRUE != OSAPI_System_initialize())
+    {
+        AUTOSAR_LOG_DDS_SYSTEM_INITIALIZE_FAILED(
+                OSAPI_LOGKIND_ERROR)
+                DdsCdd_fv_InitState = DdsCdd_InitState_Error;
+        return;
+    }
+    else
+    {
+        DdsCdd_fv_InitState = DdsCdd_InitState_SystemPropertiesSet;
+    }
 
     /* Create DDS entities (but do NOT enable them yet) */
-    if (dds_cdd_init_state == DdsCdd_InitState_SystemPropertiesSet)
+    if (DdsCdd_fv_InitState == DdsCdd_InitState_SystemPropertiesSet)
     {
-        printf("DDS_Init: Creating DDS entities\n");
         retval = DdsImpl_CreateEntities();
         if (retval != 0)
         {
-            printf("DDS_Init: Failed to create DDS entities\n");
-            dds_cdd_init_state = DdsCdd_InitState_Error;
+            AUTOSAR_LOG_DDS_CREATE_ENTITIES_FAILED(
+                    OSAPI_LOGKIND_ERROR)
+                    DdsCdd_fv_InitState = DdsCdd_InitState_Error;
             return;
         }
-        dds_cdd_init_state = DdsCdd_InitState_EntitiesCreated;
-        printf("DDS_Init: DDS entities created successfully (not yet enabled)\n");
+        DdsCdd_fv_InitState = DdsCdd_InitState_EntitiesCreated;
+        /* Signal that DDS entities can be enabled */
+        Trigger_DdsCdd_EnableEntities();
     }
 }
 
-/* workaround#COMMON - MAG-438 - Init task overrun issue */
 /**********************************************************************************************************************
 * DdsCdd_Adapter_Enable_DDSEntities()
 *********************************************************************************************************************/
 /**
-* @brief Enable DDS entities
+* @brief Enable DDS entities after they have been created
 *
-* Enables DDS entities on first call after creation.
-*
-* @pre DdsCdd_Adapter_Init() must have been called
-* @post DDS entities enabled on first call after creation
+* @pre DdsCdd_Adapter_Init() has created the DDS entities
+* @post DDS entities are enabled on success
 */
 void DdsCdd_Adapter_Enable_DDSEntities(void)
 {
-    /* Always call timer callback for DDS internal timer management */
-    //OSAPI_SystemAutosar_timer_callback();
+    if (DdsCdd_fv_InitState != DdsCdd_InitState_EntitiesCreated)
+    {
+        return;
+    }
 
-    //if (dds_cdd_init_state == DdsCdd_InitState_TcpIpReady){
-        /* Try to initialize DDS if TcpIp is ready */
-        //    DdsCdd_Adapter_Init();
-        //} else
-    /* Enable entities only once (first time this runnable executes after entities are created) */
-    //if (dds_cdd_init_state == DdsCdd_InitState_EntitiesCreated)
-    //{
-        printf("DDS_CDD_Run: Enabling DDS entities (first run)\n");
-        if (DdsImpl_EnableEntities() == 0)
-        {
-            printf("DDS_CDD_Run: DDS entities enabled successfully\n");
-            dds_cdd_init_state = DdsCdd_InitState_EntitiesEnabled;
-        }
-        else
-        {
-            printf("DDS_CDD_Run: Failed to enable DDS entities\n");
-            dds_cdd_init_state = DdsCdd_InitState_Error;
-        }
-        //}
+    /* Enable preemtion just before enabling DDS entities */
+    OSPSL_AutosarSystem_preemption_enabled();
+    if (DdsImpl_EnableEntities() == 0)
+    {
+        DdsCdd_fv_InitState = DdsCdd_InitState_EntitiesEnabled;
+    }
+    else
+    {
+        DdsCdd_fv_InitState = DdsCdd_InitState_Error;
+    }
 }
 
-/* workaround#COMMON - PLATFORMS-6094 - task overrun issue */
 /**********************************************************************************************************************
-* DdsCdd_Adapter_Run()
+* DdsCdd_Adapter_TimerTick()
 *********************************************************************************************************************/
 /**
-* @brief Maintain DDS timer
+* @brief Enable DDS entities and maintain DDS timer
 *
-* Maintains DDS internal timer on every call for protocol operation
-* (reliability, discovery, liveliness).
+* Enables DDS entities after creation. Maintains DDS internal
+* timer on every call for protocol operation (reliability, discovery, liveliness).
+* 
+* @pre DdsCdd_Adapter_Init() must have created the DDS entities
+* @post DDS entities enabled after creation
 *
 * @note Must be called regularly (10ms recommended) for proper DDS operation.
 *       Missing calls will cause protocol timeouts and data loss.
 */
-void DdsCdd_Adapter_Run(void)
+void DdsCdd_Adapter_TimerTick(void)
 {
+    if (!DdsCdd_Adapter_IsEnabled())
+    {
+        /* DDS entities are not enabled, skip timer tick */
+        return;
+    }
     /* Always call timer callback for DDS internal timer management */
     OSAPI_SystemAutosar_timer_callback();
+    Trigger_DdsCdd_TimerUpdate();
+}
+
+/**********************************************************************************************************************
+* DdsCdd_Adapter_TimerUpdate()
+*********************************************************************************************************************/
+/**
+* @brief Enable DDS entities and maintain internal DDS timer
+* 
+* Enables DDS entities on first call after creation. Maintains DDS internal
+* timer on every call for protocol operation (reliability, discovery, liveliness).
+* 
+* @pre DdsCdd_Adapter_Init() must have been called
+* @post DDS entities enabled on first call after creation
+* 
+* @note Must be called regularly (10ms recommended) for proper DDS operation.
+*       Missing calls will cause protocol timeouts and data loss.
+*/
+void DdsCdd_Adapter_TimerUpdate(void)
+{
+    OSAPI_SystemAutosar_handler_callback();
 }
 
 /**********************************************************************************************************************
@@ -386,12 +346,12 @@ void DdsCdd_Adapter_Run(void)
 * to DataWriter. May block with RELIABLE QoS if queue full.
 * 
 * @param[in] rte_data Pointer to RTE type structure containing data to transmit
-* @return 0 on success, -1 on error
+* @return TRUE on success, FALSE on error
 * 
 * @pre DDS entities must be enabled, rte_data must point to valid data
 * @post Data published to DDS network
 */
-int DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data)
+boolean DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data)
 {
     dds_Cabin_Door_PDIO_FL_t dds_sample;
     int retval;
@@ -399,13 +359,17 @@ int DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data
     /* Validate input parameter */
     if (rte_data == NULL)
     {
-        return -1;
+        return FALSE;
     }
 
     /* Check if entities are enabled */
-    if (dds_cdd_init_state != DdsCdd_InitState_EntitiesEnabled)
+    if (!DdsCdd_Adapter_IsEnabled())
     {
-        return -1;
+        AUTOSAR_LOG_DDS_INVALID_STATE(
+                OSAPI_LOGKIND_ERROR,
+                DdsCdd_InitState_EntitiesEnabled,
+                DdsCdd_fv_InitState)
+                return FALSE;
     }
 
     /* Convert AUTOSAR type (Cabin_Door_PDIO_FL_t) to DDS type (dds_Cabin_Door_PDIO_FL_t) */
@@ -415,14 +379,11 @@ int DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data
     retval = DdsImpl_Cabin_Door_PDIO_FL_WriteSample(&dds_sample);
     if (retval != 0)
     {
-        printf("DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL: Failed to write sample\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ADAPTER_WRITE_FAILED(
+                OSAPI_LOGKIND_ERROR, "Cabin_Door_PDIO_FL")
+                return FALSE;
     }
-    else
-    {
-        printf("DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL: Sample written successfully\n");
-        return 0;
-    }
+    return TRUE;
 }
 /**********************************************************************************************************************
 * DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL()
@@ -453,9 +414,13 @@ int DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL(GCS_LEFT_2_PDIO_FL_t* rte_data)
     }
 
     /* Check if entities are enabled */
-    if (dds_cdd_init_state != DdsCdd_InitState_EntitiesEnabled)
+    if (!DdsCdd_Adapter_IsEnabled())
     {
-        return -1;
+        AUTOSAR_LOG_DDS_INVALID_STATE(
+                OSAPI_LOGKIND_ERROR,
+                DdsCdd_InitState_EntitiesEnabled,
+                DdsCdd_fv_InitState)
+                return -1;
     }
 
     /* Take the next sample from DDS */
@@ -463,26 +428,35 @@ int DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL(GCS_LEFT_2_PDIO_FL_t* rte_data)
 
     if (retval != 0)
     {
-        /* Error occurred */
-        printf("DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL: Error reading from DDS\n");
-        return -1;
+        AUTOSAR_LOG_DDS_ADAPTER_READ_FAILED(
+                OSAPI_LOGKIND_ERROR, "GCS_LEFT_2_PDIO_FL")
+                return -1;
     }
 
     if (is_valid)
     {
-        /* Valid sample received */
-        printf("DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL: Valid sample received\n");
-
-        /* Convert DDS type (dds_GCS_LEFT_2_PDIO_FL_t) to AUTOSAR type (GCS_LEFT_2_PDIO_FL_t) */ /* workaround#COMMON - MICRO-13937 - delete & of rte_data */
+        /* Convert DDS type (dds_GCS_LEFT_2_PDIO_FL_t) to AUTOSAR type (GCS_LEFT_2_PDIO_FL_t) */
         GCS_LEFT_2_PDIO_FL_t_dds_to_rte(&dds_sample, rte_data);
         return 0;
     }
     else
     {
-        /* No valid data available */
-        //printf("DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL: DDS data not valid\n");
-        return -1;
+        AUTOSAR_LOG_DDS_NO_VALID_DATA(
+                OSAPI_LOGKIND_ERROR, "GCS_LEFT_2_PDIO_FL")
+                return -1;
     }
+}
+
+/**********************************************************************************************************************
+* DdsCdd_Adapter_IsEnabled()
+*********************************************************************************************************************/
+/**
+* @brief Check if DDS adapter and entities are enabled
+* @return TRUE if DDS adapter and entities are enabled, FALSE otherwise
+*/
+boolean DdsCdd_Adapter_IsEnabled(void)
+{
+    return (DdsCdd_fv_InitState == DdsCdd_InitState_EntitiesEnabled) ? TRUE : FALSE;
 }
 
 /*==============================================================================
@@ -490,7 +464,7 @@ int DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL(GCS_LEFT_2_PDIO_FL_t* rte_data)
 *============================================================================*/
 
 /* TcpIp_[SocketOwnerName]GetSocket - TODO: update if using different SocketOwner name */
-/* Workaround#HAE - MAG-459 - mobilgene naming rule, prefix TcpIp_ */
+/* Workaround#HAE - MAG-459 - mobilgene naming rule, prefix TcpIp_ (mobilgene specific) */
 #define DDSCDD_SOCKET_OWNER_GET_SOCKET   TcpIp_TcpIp_DdsCddGetSocket   /* TcpIp_socket_name = TcpIp_DdsCdd */
 
 /**
@@ -519,7 +493,7 @@ Std_ReturnType DdsCdd_GetSocket(
 * @brief TcpIp local IP address assignment change notification
 * 
 * Callback invoked when local IP address state changes. Monitors LocalAddrId 0
-* for ASSIGNED state to trigger DDS initialization readiness.
+* for ASSIGNED state.
 * 
 * @param[in] LocalAddrId Local address identifier
 * @param[in] State New IP address state
@@ -531,19 +505,10 @@ void DdsCdd_LocalIpAddrAssignmentChg(
         TcpIp_IpAddrStateType State
         )
 {
-    printf("[RTI] DDS_LocalIpAddrAssignmentChg %u:%u!\n", LocalAddrId, State);
     NETIO_Autosar_update_ip_assignment_state(LocalAddrId, State);
     if((State == TCPIP_IPADDR_STATE_ASSIGNED))
     {
-        /* workaround#COMMON - MAG-438 - Init task overrun issue */
-        //if ((dds_cdd_init_state == DdsCdd_InitState_TcpIpNotReady) && (LocalAddrId == 0))
-        //{
-            //    printf("TCP/IP is ready - allow DDS initialization\n");
-            //    dds_cdd_init_state = DdsCdd_InitState_TcpIpReady;
-            //}
-#ifndef RTI_CERT
         NETIO_Autosar_on_ip_assigned(LocalAddrId);
-#endif
     }
 }
 
@@ -567,6 +532,10 @@ void DdsCdd_RxIndication(
         uint16 Length
         )
 {
+    if (!DdsCdd_Adapter_IsEnabled())
+    {
+        return;
+    }
     /* Forward received UDP data indication to RTI DDS Micro NETIO layer */
     NETIO_Autosar_TcpIp_udp_rx_indication(SocketId, RemoteAddrPtr, BufPtr, Length);
 }
@@ -595,9 +564,6 @@ void DdsCdd_TcpIpEvent(
 #endif
     if (Event == TCPIP_UDP_CLOSED)
     {
-#ifndef RTI_CERT
         NETIO_Autosar_on_socket_event(SocketId, Event);
-#endif
     }
-    printf("[RTI] DdsCdd_TcpIpEvent %d!\n", Event);
 }

@@ -430,6 +430,19 @@ def scan_arxml_implementation_data_types(
                 namespaces=ns,
             )
 
+            if not type_ref:
+                type_ref = element.findtext(
+                    ".//ar:BASE-TYPE-REF",
+                    default="",
+                    namespaces=ns,
+                )
+
+            if not type_ref:
+                raise SystemExit(
+                    "ERROR: structure member type cannot be resolved: "
+                    f"{type_name}.{member_name}"
+                )
+
             members.append(
                 {
                     "name": member_name,
@@ -1026,6 +1039,25 @@ def generate_rte_ddscdd_type_source(
             f"static boolean {flag_name} = FALSE;"
         )
 
+    for entry in aswc_reads:
+        key = (
+            entry["interface_ref"],
+            entry["data_element"],
+        )
+
+        buffer = next(
+            buffer
+            for buffer in rte_buffers
+            if (
+                buffer["interface_ref"],
+                buffer["data_element"],
+            ) == key
+        )
+
+        lines.append(
+            f'static boolean {buffer["buffer_name"]}_unread = FALSE;'
+        )
+
     lines.append("")
 
     for entry in rte_reads:
@@ -1075,6 +1107,18 @@ def generate_rte_ddscdd_type_source(
             ) == key
         )
 
+        aswc_read = next(
+            (
+                read
+                for read in aswc_reads
+                if (
+                    read["interface_ref"],
+                    read["data_element"],
+                ) == key
+            ),
+            None,
+        )
+
         lines.extend([
             "Std_ReturnType",
             f'{entry["symbol"]}(',
@@ -1086,6 +1130,14 @@ def generate_rte_ddscdd_type_source(
             "    }",
             "",
             f'    memcpy(&{buffer["buffer_name"]}, data, sizeof(*data));',
+        ])
+
+        if aswc_read is not None:
+            lines.append(
+                f'    {buffer["buffer_name"]}_unread = TRUE;'
+            )
+
+        lines.extend([
             "",
             "    return E_OK;",
             "}",
@@ -1112,12 +1164,14 @@ def generate_rte_ddscdd_type_source(
             f'{entry["symbol"]}(',
             f'        {entry["data_element"]} *data)',
             "{",
-            "    if (data == NULL)",
+            "    if ((data == NULL) ||",
+            f'        ({buffer["buffer_name"]}_unread == FALSE))',
             "    {",
             "        return E_NOT_OK;",
             "    }",
             "",
             f'    memcpy(data, &{buffer["buffer_name"]}, sizeof(*data));',
+            f'    {buffer["buffer_name"]}_unread = FALSE;',
             "",
             "    return E_OK;",
             "}",
@@ -1171,9 +1225,12 @@ def generate_rte_ddscdd_type_source(
         ])
 
         if flag_name is not None:
-            lines.append(
-                f"    {flag_name} = TRUE;"
-            )
+            lines.extend([
+                f"    {flag_name} = TRUE;",
+                "    (void)SetEvent(",
+                "        DdsCddWrite_Task,",
+                "        DdsCddPeriodicWriteEvent);",
+            ])
 
         lines.extend([
             "",
@@ -1219,6 +1276,10 @@ def generate_rte_ddscdd_type_source(
         ])
     
     fixed_internal_trigger_map = {
+        "Enable": (
+            "DdsCddStart_Task",
+            "DdsCddStartEvent",
+        ),
         "TimerUpdate": (
             "DdsCddWrite_Task",
             "DdsCddTimerUpdateEvent",
@@ -1276,6 +1337,7 @@ def generate_virtual_aswc_source(
     """Generate a type-safe default Virtual ASWC test runnable."""
 
     lines = [
+        '#include <stdio.h>',
         '#include <string.h>',
         "",
         '#include "VirtualAswc.h"',
@@ -1291,11 +1353,23 @@ def generate_virtual_aswc_source(
 
     for index, entry in enumerate(aswc_reads):
         variable_name = f"read_data_{index}"
+        status_name = f"read_status_{index}"
+        port_name = entry["port"]
+
+        if port_name.startswith("R_"):
+            port_name = port_name[2:]
 
         lines.extend([
             f'    {entry["data_element"]} {variable_name};',
+            f'    Std_ReturnType {status_name};',
             "",
-            f'    (void){entry["symbol"]}(&{variable_name});',
+            f'    {status_name} = {entry["symbol"]}(&{variable_name});',
+            "",
+            f'    if ({status_name} == E_OK)',
+            "    {",
+            f'        printf("[VirtualAswc] {port_name} received first=0x%02X\\n",',
+            f'                (unsigned int)((const uint8 *)&{variable_name})[0]);',
+            "    }",
             "",
         ])
 
@@ -1322,6 +1396,7 @@ def generate_virtual_aswc_source(
 def generate_ddscdd_task_source(
     data_received: list,
     timing: list,
+    init: list,
     internal_trigger: list,
 ) -> str:
     """
@@ -1336,6 +1411,24 @@ def generate_ddscdd_task_source(
             entry
             for entry in internal_trigger
             if entry["target_runnable"] == "TimerUpdate"
+        ),
+        None,
+    )
+
+    init_runnable = next(
+        (
+            entry
+            for entry in init
+            if entry["arxml_runnable"] == "Init"
+        ),
+        None,
+    )
+
+    start_runnable = next(
+        (
+            entry
+            for entry in internal_trigger
+            if entry["target_runnable"] == "Enable"
         ),
         None,
     )
@@ -1357,6 +1450,18 @@ def generate_ddscdd_task_source(
         ),
         None,
     )
+
+    if init_runnable is None:
+        raise SystemExit(
+            "ERROR: fixed Virtual AUTOSAR model requires "
+            "Init InitEvent"
+        )
+
+    if start_runnable is None:
+        raise SystemExit(
+            "ERROR: fixed Virtual AUTOSAR model requires "
+            "InternalTrigger target Enable"
+        )
 
     if timer_update is None:
         raise SystemExit(
@@ -1383,6 +1488,8 @@ def generate_ddscdd_task_source(
     ]
 
     declarations = {
+        init_runnable["c_runnable"],
+        start_runnable["target_c_runnable"],
         timer_tick["c_runnable"],
         timer_update["target_c_runnable"],
         process_data["target_c_runnable"],
@@ -1399,6 +1506,8 @@ def generate_ddscdd_task_source(
     )
 
     lines = [
+        '#include <stdio.h>',
+        "",
         '#include "tpl_os.h"',
         '#include "Rte_DdsCddType.h"',
         "",
@@ -1412,6 +1521,35 @@ def generate_ddscdd_task_source(
         lines.append(f"extern void {runnable}(void);")
 
     lines.extend([
+        "",
+        "/* --------------------------------------------------------------------------",
+        " * CDD initialization and start tasks",
+        " * -------------------------------------------------------------------------- */",
+        "",
+        "TASK(DdsCddInit_Task)",
+        "{",
+        f'    {init_runnable["c_runnable"]}();',
+        '    printf("[DdsCddInit_Task] DdsCddInit completed.\\n");',
+        "",
+        "    TerminateTask();",
+        "}",
+        "",
+        "TASK(DdsCddStart_Task)",
+        "{",
+        "    EventMaskType events;",
+        "",
+        "    WaitEvent(DdsCddStartEvent);",
+        "    GetEvent(DdsCddStart_Task, &events);",
+        "",
+        "    if ((events & DdsCddStartEvent) != 0U)",
+        "    {",
+        "        ClearEvent(DdsCddStartEvent);",
+        f'        {start_runnable["target_c_runnable"]}();',
+        '        printf("[DdsCddStart_Task] DdsCddEnable completed.\\n");',
+        "    }",
+        "",
+        "    TerminateTask();",
+        "}",
         "",
         "/* --------------------------------------------------------------------------",
         " * CDD TimerTick task",
@@ -1949,6 +2087,16 @@ def main() -> None:
         )
 
         if rte_trigger is None:
+            rte_trigger = next(
+                (
+                    entry["rte_irtrigger"]
+                    for entry in result["trigger_macros"]
+                    if entry["rte_irtrigger"].endswith(expected_suffix)
+                ),
+                None,
+            )
+
+        if rte_trigger is None:
             print(
                 f"{event['source_runnable']}"
                 f" / {event['triggering_point']}"
@@ -2140,6 +2288,24 @@ def main() -> None:
             None,
         )
 
+        if rte_trigger is None:
+            rte_trigger = next(
+                (
+                    entry["rte_irtrigger"]
+                    for entry in result["trigger_macros"]
+                    if entry["rte_irtrigger"].endswith(expected_suffix)
+                ),
+                None,
+            )
+
+        if rte_trigger is None:
+            raise SystemExit(
+                "ERROR: InternalTrigger RTE API cannot be resolved: "
+                f"{event['name']} "
+                f"(source={event['source_runnable']}, "
+                f"point={event['triggering_point']})"
+            )
+
         internal_trigger_model.append(
             {
                 "event": event["name"],
@@ -2196,6 +2362,7 @@ def main() -> None:
     ddscdd_task_source = generate_ddscdd_task_source(
         data_received_model,
         timing_model,
+        init_model,
         internal_trigger_model,
     )
 

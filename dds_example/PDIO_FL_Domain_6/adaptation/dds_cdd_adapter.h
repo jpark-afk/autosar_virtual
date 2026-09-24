@@ -28,12 +28,11 @@
 * 
 * **State Machine**:
 * The adapter manages DDS initialization through these states:
-* 1. TCPIP_NOT_READY - Waiting for IP address assignment
-* 2. TCPIP_READY - IP assigned, ready to set system properties
-* 3. SYSTEM_PROPERTIES_SET - Properties configured, ready to create entities
-* 4. ENTITIES_CREATED - DDS entities created but disabled
-* 5. ENTITIES_ENABLED - Fully operational, can send/receive data
-* 6. ERROR - Initialization failed
+* 1. Uninitialized - Adapter not yet initialized
+* 2. SystemPropertiesSet - Properties configured, ready to create entities
+* 3. EntitiesCreated - DDS entities created but disabled
+* 4. EntitiesEnabled - Fully operational, can send/receive data
+* 5. Error - Initialization failed
 * 
 * **Configuration Requirements**:
 * 
@@ -64,10 +63,11 @@
 * // Called automatically by RTE, application code doesn't call these directly
 * 
 * // 1. Initialization (once at startup)
-* DdsCddStart()  // -> DdsCdd_Adapter_Init()
+* DdsCddInit()  // -> DdsCdd_Adapter_Init()
+* DdsCddEnable()  // -> DdsCdd_Adapter_Enable_DDSEntities()
 * 
 * // 2. Cyclic execution (every 10ms)
-* DdsCddRun()    // -> DdsCdd_Adapter_Run()
+* DdsCddTimerTick()    // -> DdsCdd_Adapter_TimerTick()
 * 
 * // 3. Receive data (every 100ms or as needed)
 * DdsCddRead_GCS_LEFT_2_PDIO_FL()  // -> DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL
@@ -93,16 +93,12 @@
 #include "TcpIp.h"
 #include "Rte_DdsCddType.h"  /* Provides dds_system type definition and RTE function signatures */
 
-/* workaround#HAE - MICRO-13500 */ 
-/* RTI DDS Micro includes are intentionally kept out of this public header.
-* Include them in implementation files only to avoid macro conflicts with
-* AUTOSAR compiler abstraction (e.g., CONST/VAR macros). */
-#ifndef VVIRTUALTARGET
-#include "dds_impl.h"
-#endif
-
-/* workaround#HAE - MAG-460 - add an user_stub header file */
-#include "dds_cdd_userstub.h" //SHOULD BE CREATED EXTERNALLY
+/* RTI DDS Micro Includes */
+#include "rti_me_c.h"
+#include "osapi/osapi_system.h"
+#include "rti_me_psl/ospsl/ospsl_os_autosar.h"
+/* Provides functions to convert between dds_GCS_LEFT_2_PDIO_FL_t and GCS_LEFT_2_PDIO_FL_t */
+#include "../dds_gen/dds_system_conversions.h"
 
 /*==============================================================================
 *                        AUTOSAR MEMORY/CODE SECTIONS
@@ -118,6 +114,10 @@
 *============================================================================*/
 /* Trigger_DdsCdd_RxIndication - TODO: Update if callback for the ITP has different name */
 #define Trigger_DdsCdd_RxIndication Rte_IrTrigger_DdsCdd_RxIndication_ITP_DdsCdd_RxIndication
+/* Trigger_DdsCdd_TimerUpdate - TODO: Update if callback for the ITP has different name */
+#define Trigger_DdsCdd_TimerUpdate Rte_IrTrigger_TimerTick_ITP_TimerUpdate
+/* Trigger_DdsCdd_EnableEntities - TODO: Update if callback for the ITP has different name */
+#define Trigger_DdsCdd_EnableEntities Rte_IrTrigger_DdsCdd_Init_ITP_Start
 
 /*==============================================================================
 *                                TYPES
@@ -128,9 +128,6 @@
 */
 typedef enum
 {
-    /* workaround#COMMON - MAG-438 - Init task overrun issue. */
-    //DdsCdd_InitState_TcpIpNotReady = 0,
-    //DdsCdd_InitState_TcpIpReady,
     DdsCdd_InitState_Uninitialized = 0,
 
     DdsCdd_InitState_SystemPropertiesSet,
@@ -221,7 +218,6 @@ void DdsCdd_TcpIpEvent(
 */
 void DdsCdd_Adapter_Init(void);
 
-/* workaround#COMMON - MAG-438 - Init task overrun issue */
 /**
 * @brief Enable DDS entities
 * 
@@ -230,11 +226,18 @@ void DdsCdd_Adapter_Init(void);
 void DdsCdd_Adapter_Enable_DDSEntities(void);
 
 /**
+* @brief Run DDS adapter periodic timer
+* 
+* Maintains PSL DDS timer. Must be called regularly.
+*/
+void DdsCdd_Adapter_TimerTick(void);
+
+/**
 * @brief Run DDS adapter periodic tasks
 * 
-* Enables entities (first call) and maintains DDS timer. Must be called regularly.
+* Maintains internal DDS timer. Triggered by event.
 */
-void DdsCdd_Adapter_Run(void);
+void DdsCdd_Adapter_TimerUpdate(void);
 
 /**
 * @brief Convert RTE type to DDS type and write to TopicC DataWriter
@@ -242,7 +245,7 @@ void DdsCdd_Adapter_Run(void);
 * @param[in] rte_data Pointer to RTE type structure containing data to transmit
 * @return 0 on success, -1 on error
 */
-int DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data);
+boolean DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data);
 /**
 * @brief Read DataReader for TopicC and convert DDS type to RTE type
 *
@@ -250,5 +253,12 @@ int DdsCdd_Adapter_Write_Cabin_Door_PDIO_FL(const Cabin_Door_PDIO_FL_t* rte_data
 * @return 0 on success (valid data returned), -1 if no data or error
 */
 int DdsCdd_Adapter_Read_GCS_LEFT_2_PDIO_FL(GCS_LEFT_2_PDIO_FL_t* rte_data);
+
+/**
+* @brief Check if DDS adapter and entities are enabled
+*
+* @return RTI_TRUE if DDS adapter and entities are enabled, RTI_FALSE otherwise
+*/
+boolean DdsCdd_Adapter_IsEnabled(void);
 
 #endif /* DDSCDD_ADAPTER_H */

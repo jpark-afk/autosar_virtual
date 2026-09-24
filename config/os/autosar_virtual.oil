@@ -36,15 +36,14 @@ CPU autosar_virtual {
 
     APPMODE stdAppmode {};
 
-    /*
-     * ID 0 is reserved by the RTI AUTOSAR PSL assumptions.
-     * Keep this resource before OsResource_Dds.
-     */
+    /* ----------------------------------------------------------------------
+     * OsResources
+     * ---------------------------------------------------------------------- */
     RESOURCE DummyResource {
         RESOURCEPROPERTY = STANDARD;
     };
 
-    RESOURCE OsResource_DdsMain {
+    RESOURCE OsResource_DdsMutex {
     RESOURCEPROPERTY = STANDARD;
     };
 
@@ -57,32 +56,14 @@ CPU autosar_virtual {
     };
     
 
-    EVENT RTI_GiveEvent {
-        MASK = 1;
-    };
-
-    EVENT RTI_TimeoutEvent {
-        MASK = 2;
-    };
-
-    /*
-     * Reserve Alarm ID 0.
-     * RTI AUTOSAR PSL requires first_alarm != 0.
-     */
+    /* ----------------------------------------------------------------------
+     * Alarms
+     * ---------------------------------------------------------------------- */
     ALARM DummyAlarm {
         COUNTER = SystemCounter;
         AUTOSTART = FALSE;
         ACTION = ACTIVATETASK {
-            TASK = RTI_Task;
-        };
-    };
-
-    ALARM RTI_SemaphoreAlarm {
-        COUNTER = SystemCounter;
-        AUTOSTART = FALSE;
-        ACTION = SETEVENT {
-            TASK = RTI_Task;
-            EVENT = RTI_TimeoutEvent;
+            TASK = DdsCddInit_Task;
         };
     };
 
@@ -100,26 +81,11 @@ CPU autosar_virtual {
         };
     };
 
-    ALARM DdsCddWriteAlarm {
-        COUNTER = SystemCounter;
-
-        AUTOSTART = TRUE {
-            ALARMTIME = 125;
-            CYCLETIME = 500;
-            APPMODE = stdAppmode;
-        };
-
-        ACTION = SETEVENT {
-            TASK = DdsCddWrite_Task;
-            EVENT = DdsCddPeriodicWriteEvent;
-        };
-    };
-
     ALARM DdsCddReadAlarm {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 120;
+            ALARMTIME = 110;
             CYCLETIME = 500;
             APPMODE = stdAppmode;
         };
@@ -148,7 +114,7 @@ CPU autosar_virtual {
         COUNTER = SystemCounter;
 
         AUTOSTART = TRUE {
-            ALARMTIME = 1250;
+            ALARMTIME = 120;
             CYCLETIME = 1000;
             APPMODE = stdAppmode;
         };
@@ -158,53 +124,13 @@ CPU autosar_virtual {
         };
     };
 
-/* TASK */
-
-    TASK RTI_Task {
-        PRIORITY = 11;
-        AUTOSTART = TRUE {
-            APPMODE = stdAppmode;
-        };
-        ACTIVATION = 1;
-        SCHEDULE = FULL;
-
-        RESOURCE = OsResource_DdsMain;
-        RESOURCE = OsResource_DdsTimer;
-        RESOURCE = OsResource_DdsNetio;
-        
-        EVENT = RTI_GiveEvent;
-        EVENT = RTI_TimeoutEvent;
-    };
-
-    TASK Bsw_InitTask {
-        PRIORITY = 12;
-        AUTOSTART = TRUE {
-            APPMODE = stdAppmode;
-        };
-        ACTIVATION = 1;
-        SCHEDULE = FULL;
-    };
-
-    TASK TcpIp_Task {
-        PRIORITY = 10;
-        AUTOSTART = TRUE {
-            APPMODE = stdAppmode;
-        };
-        ACTIVATION = 1;
-        SCHEDULE = FULL;
-        RESOURCE = OsResource_DdsNetio;
-    };
-
-    TASK App_Task {
-        PRIORITY = 2;
-        AUTOSTART = FALSE;
-        ACTIVATION = 1;
-        SCHEDULE = FULL;
-    };
-
     /* ----------------------------------------------------------------------
-     * DDS CDD Virtual RTE Tasks
+     * Events
      * ---------------------------------------------------------------------- */
+    EVENT DdsCddStartEvent {
+        MASK = AUTO;
+    };
+
     EVENT DdsCddTimerUpdateEvent {
         MASK = AUTO;
     };
@@ -221,6 +147,52 @@ CPU autosar_virtual {
         MASK = AUTO;
     };
 
+    /* ----------------------------------------------------------------------
+     * Tasks
+     * ---------------------------------------------------------------------- */
+    TASK DdsCddInit_Task {
+        PRIORITY = 14;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+    };
+
+    TASK DdsCddStart_Task {
+        PRIORITY = 13;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+
+        RESOURCE = OsResource_DdsMutex;
+        RESOURCE = OsResource_DdsTimer;
+        RESOURCE = OsResource_DdsNetio;
+
+        EVENT = DdsCddStartEvent;
+    };
+
+    TASK Bsw_InitTask {
+        PRIORITY = 15;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+    };
+
+    TASK TcpIp_Task {
+        PRIORITY = 10;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+        RESOURCE = OsResource_DdsNetio;
+    };
+    
     TASK DdsCddProcessData_Task {
         PRIORITY = 1;
         AUTOSTART = TRUE {
@@ -230,7 +202,7 @@ CPU autosar_virtual {
         SCHEDULE = FULL;
 
         EVENT = DdsCddProcessDataEvent;
-        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsMutex;
         RESOURCE = OsResource_DdsNetio;
     };
 
@@ -255,7 +227,7 @@ CPU autosar_virtual {
         EVENT = DdsCddTimerUpdateEvent;
         EVENT = DdsCddPeriodicWriteEvent;
 
-        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsMutex;
         RESOURCE = OsResource_DdsTimer;
     };
 
@@ -271,7 +243,14 @@ CPU autosar_virtual {
 
         EVENT = DdsCddPeriodicReadEvent;
 
-        RESOURCE = OsResource_DdsMain;
+        RESOURCE = OsResource_DdsMutex;
         RESOURCE = OsResource_DdsTimer;
     };
+
+    TASK App_Task {
+        PRIORITY = 2;
+        AUTOSTART = FALSE;
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+    };    
 };

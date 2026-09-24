@@ -31,6 +31,47 @@ const char *const parlib_PDIO_FL_Domain_6_user_traffic_enabled_transports[1] =
     "udpv4://"
 };
 
+const char *const parlib_PSUIO_DRV_Domain_6_initial_peers[1] =
+{
+    "0@192.168.56.1"
+};
+
+const char *const parlib_PSUIO_DRV_Domain_6_discovery_enabled_transports[1] =
+{
+    "udpv4://"
+};
+
+const char *const parlib_PSUIO_DRV_Domain_6_transport_enabled_transports[1] =
+{
+    "udpv4"
+};
+
+const char *const parlib_PSUIO_DRV_Domain_6_user_traffic_enabled_transports[1] =
+{
+    "udpv4://"
+};
+
+const char *const parlib_GCS_LEFT_2_Domain_6_initial_peers[2] =
+{
+    "0@192.168.56.105",
+    "0@192.168.56.106"
+};
+
+const char *const parlib_GCS_LEFT_2_Domain_6_discovery_enabled_transports[1] =
+{
+    "udpv4://"
+};
+
+const char *const parlib_GCS_LEFT_2_Domain_6_transport_enabled_transports[1] =
+{
+    "udpv4"
+};
+
+const char *const parlib_GCS_LEFT_2_Domain_6_user_traffic_enabled_transports[1] =
+{
+    "udpv4://"
+};
+
 const char *const RTI_APP_GEN___udpv4__parlib_PDIO_FL_Domain_6_udpv4_allow_interface[1] =
 {
     "enp0s8"
@@ -40,6 +81,28 @@ const struct UDP_InterfaceTableEntry RTI_APP_GEN___udpv4__parlib_PDIO_FL_Domain_
 {
     /* XML Source Location: file=C:\Users\jpark\Documents\rti_workspace\svc-autosar-patch\projects\test\user_work\dds_system.xml, lineNumber=563, columnNumber=24 */
     RTI_APP_GEN___udpv4__parlib_PDIO_FL_Domain_6_udpv4_interface_table1
+};
+
+const char *const RTI_APP_GEN___udpv4__parlib_PSUIO_DRV_Domain_6_udpv4_allow_interface[1] =
+{
+    "enp0s8"
+};
+
+const struct UDP_InterfaceTableEntry RTI_APP_GEN___udpv4__parlib_PSUIO_DRV_Domain_6_udpv4_interface_table[1] =
+{
+    /* XML Source Location: file=C:\Users\jpark\Documents\rti_workspace\svc-autosar-patch\projects\test\user_work\dds_system.xml, lineNumber=490, columnNumber=24 */
+    RTI_APP_GEN___udpv4__parlib_PSUIO_DRV_Domain_6_udpv4_interface_table1
+};
+
+const char *const RTI_APP_GEN___udpv4__parlib_GCS_LEFT_2_Domain_6_udpv4_allow_interface[1] =
+{
+    "Ethernet 2"
+};
+
+const struct UDP_InterfaceTableEntry RTI_APP_GEN___udpv4__parlib_GCS_LEFT_2_Domain_6_udpv4_interface_table[1] =
+{
+    /* XML Source Location: file=C:\Users\jpark\Documents\rti_workspace\svc-autosar-patch\projects\test\user_work\dds_system.xml, lineNumber=416, columnNumber=24 */
+    RTI_APP_GEN___udpv4__parlib_GCS_LEFT_2_Domain_6_udpv4_interface_table1
 };
 
 const struct ComponentFactoryUnregisterModel parlib_PDIO_FL_Domain_6_unregister_components[2] =

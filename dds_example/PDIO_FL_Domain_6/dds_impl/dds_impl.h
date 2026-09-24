@@ -33,19 +33,6 @@
 
 #include "../dds_gen/dds_system_types.h"  /* DDS type definition generated from IDL */
 
-#if (OSAPI_ENABLE_LOG == 1 && OSAPI_ENABLE_TRACE == 1)
-/* TODO: Depend on each platform, change to appropriate logging function */
-//#define printf serialprintf
-/* workaround#HAE - MAG-462 - don't use serialprintf */
-//#define printf(...) do {} while(0) 
-/* Woraround#VTT - cprintf */
-#elif VVIRTUALTARGET
-extern void CANoeAPI_Printf(const char*, ...);
-#define cprintf CANoeAPI_Printf
-#else
-#define printf(...) do {} while(0)  /* No-op when printf is disabled */
-#endif
-
 struct Application
 {
     DDS_DomainParticipant *PDIO_FL_Domain_6;

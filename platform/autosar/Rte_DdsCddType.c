@@ -10,6 +10,7 @@
 static Cabin_Door_PDIO_FL_t g_cabin_door_pdio_fl;
 static GCS_LEFT_2_PDIO_FL_t g_gcs_left_2_pdio_fl;
 static boolean g_cabin_door_pdio_fl_received = FALSE;
+static boolean g_gcs_left_2_pdio_fl_unread = FALSE;
 
 Std_ReturnType
 Rte_Read_R_Cabin_Door_PDIO_FL_Cabin_Door_PDIO_FL_t(
@@ -35,6 +36,7 @@ Rte_Write_S_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
     }
 
     memcpy(&g_gcs_left_2_pdio_fl, data, sizeof(*data));
+    g_gcs_left_2_pdio_fl_unread = TRUE;
 
     return E_OK;
 }
@@ -43,12 +45,14 @@ Std_ReturnType
 Rte_Read_R_GCS_LEFT_2_PDIO_FL_GCS_LEFT_2_PDIO_FL_t(
         GCS_LEFT_2_PDIO_FL_t *data)
 {
-    if (data == NULL)
+    if ((data == NULL) ||
+        (g_gcs_left_2_pdio_fl_unread == FALSE))
     {
         return E_NOT_OK;
     }
 
     memcpy(data, &g_gcs_left_2_pdio_fl, sizeof(*data));
+    g_gcs_left_2_pdio_fl_unread = FALSE;
 
     return E_OK;
 }
@@ -64,6 +68,9 @@ Rte_Write_S_Cabin_Door_PDIO_FL_Cabin_Door_PDIO_FL_t(
 
     memcpy(&g_cabin_door_pdio_fl, data, sizeof(*data));
     g_cabin_door_pdio_fl_received = TRUE;
+    (void)SetEvent(
+        DdsCddWrite_Task,
+        DdsCddPeriodicWriteEvent);
 
     return E_OK;
 }
@@ -92,4 +99,11 @@ void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void)
     (void)SetEvent(
         DdsCddWrite_Task,
         DdsCddTimerUpdateEvent);
+}
+
+void Rte_IrTrigger_DdsCdd_Init_ITP_Start(void)
+{
+    (void)SetEvent(
+        DdsCddStart_Task,
+        DdsCddStartEvent);
 }

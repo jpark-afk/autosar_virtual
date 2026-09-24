@@ -44,6 +44,8 @@ void Rte_IrTrigger_DdsCdd_RxIndication_ITP_DdsCdd_RxIndication(void);
 
 void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void);
 
+void Rte_IrTrigger_DdsCdd_Init_ITP_Start(void);
+
 /* --------------------------------------------------------------------------
  * Virtual DataReceivedEvent state
  * -------------------------------------------------------------------------- */

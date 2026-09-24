@@ -60,12 +60,8 @@
 * DO NOT CHANGE THIS COMMENT!           << End of include and declaration area >>          DO NOT CHANGE THIS COMMENT!
 *********************************************************************************************************************/
 
-/* workaround#HAE - MAG-461 - section naming rule */
-#ifdef VVIRTUALTARGET
-#define DdsCdd_START_SEC_CODE
-#else
+/* workaround#HAE - MAG-461 - section naming rule (mobilgene specific) */
 #define DdsCddType_START_SEC_CODE
-#endif
 #include "DdsCddType_MemMap.h" /* PRQA S 5087 */ /* MD_MSR_MemMap */
 
 /**********************************************************************************************************************
@@ -150,30 +146,23 @@ FUNC(void, DdsCdd_CODE) DdsCddRead_GCS_LEFT_2_PDIO_FL(void) /* PRQA S 0624, 3206
     *********************************************************************************************************************/
 }
 
-/* workaround#COMMON - PLATFORMS-6094 - task overrun issue */
 /**********************************************************************************************************************
 *
-* Runnable Entity Name: TimerTick
+* Runnable Entity Name: DdsCddTimerTick
 *
 *---------------------------------------------------------------------------------------------------------------------
 *
 * Executed if at least one of the following trigger conditions occurred:
 *   - triggered on TimingEvent every 10ms
 *
-**********************************************************************************************************************
-*
-* Internal Trigger Interfaces:
-* ============================
-*   Unqueued Internal Triggering:
-*   -----------------------------
-*   void Rte_IrTrigger_TimerTick_ITP_TimerUpdate(void)
-*
 *********************************************************************************************************************/
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << Start of documentation area >>                  DO NOT CHANGE THIS COMMENT!
-* Symbol: TimerTick_doc
+* Symbol: DdsCddTimerTick_doc
 *********************************************************************************************************************/
-
+/**
+* @brief Periodic timer tick runnable for DDS protocols
+*/
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << End of documentation area >>                    DO NOT CHANGE THIS COMMENT!
 *********************************************************************************************************************/
@@ -184,30 +173,25 @@ FUNC(void, DdsCdd_CODE) DdsCddTimerTick(void) /* PRQA S 0624, 3206 */ /* MD_Rte_
     * DO NOT CHANGE THIS COMMENT!           << Start of runnable implementation >>             DO NOT CHANGE THIS COMMENT!
     * Symbol: DdsCddTimerTick
     *********************************************************************************************************************/
-
-    OSAPI_SystemAutosar_timer_callback();
-
-    Rte_IrTrigger_TimerTick_ITP_TimerUpdate();
-
+    DdsCdd_Adapter_TimerTick();
     /**********************************************************************************************************************
     * DO NOT CHANGE THIS COMMENT!           << End of runnable implementation >>               DO NOT CHANGE THIS COMMENT!
     *********************************************************************************************************************/
 }
 
-/* workaround#COMMON - PLATFORMS-6094 - task overrun issue */
 /**********************************************************************************************************************
 *
-* Runnable Entity Name: TimerUpdate
+* Runnable Entity Name: DdsCddTimerUpdate
 *
 *---------------------------------------------------------------------------------------------------------------------
 *
-* Executed if at least one of the following trigger conditions occurred:
-*   - triggered by InternalTriggerOccurredEvent for InternalTriggeringPoint <ITP_TimerUpdate> of runnable <TimerTick>
+* Executed if triggered by InternalTriggerOccurredEvent for InternalTriggeringPoint <ITP_TimerUpdate>
+* of runnable <TimerTick>
 *
 *********************************************************************************************************************/
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << Start of documentation area >>                  DO NOT CHANGE THIS COMMENT!
-* Symbol: TimerUpdate_doc
+* Symbol: DdsCddTimerUpdate_doc
 *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -220,9 +204,7 @@ FUNC(void, DdsCdd_CODE) DdsCddTimerUpdate(void) /* PRQA S 0624, 3206 */ /* MD_Rt
     * DO NOT CHANGE THIS COMMENT!           << Start of runnable implementation >>             DO NOT CHANGE THIS COMMENT!
     * Symbol: DdsCddTimerUpdate
     *********************************************************************************************************************/
-
-    OSAPI_SystemAutosar_handler_callback();
-
+    DdsCdd_Adapter_TimerUpdate();
     /**********************************************************************************************************************
     * DO NOT CHANGE THIS COMMENT!           << End of runnable implementation >>               DO NOT CHANGE THIS COMMENT!
     *********************************************************************************************************************/
@@ -270,7 +252,7 @@ FUNC(void, DdsCdd_CODE) DdsCddRxIndication(void) /* PRQA S 0624, 3206 */ /* MD_R
 
 /**********************************************************************************************************************
 *
-* Runnable Entity Name: Start
+* Runnable Entity Name: Enable
 *
 *---------------------------------------------------------------------------------------------------------------------
 *
@@ -290,15 +272,51 @@ FUNC(void, DdsCdd_CODE) DdsCddRxIndication(void) /* PRQA S 0624, 3206 */ /* MD_R
 * DO NOT CHANGE THIS COMMENT!           << End of documentation area >>                    DO NOT CHANGE THIS COMMENT!
 *********************************************************************************************************************/
 
-FUNC(void, DdsCdd_CODE) DdsCddStart(void) /* PRQA S 0624, 3206 */ /* MD_Rte_0624, MD_Rte_3206 */
+FUNC(void, DdsCdd_CODE) DdsCddEnable(void) /* PRQA S 0624, 3206 */ /* MD_Rte_0624, MD_Rte_3206 */
 {
     /**********************************************************************************************************************
     * DO NOT CHANGE THIS COMMENT!           << Start of runnable implementation >>             DO NOT CHANGE THIS COMMENT!
-    * Symbol: DdsCddStart
+    * Symbol: DdsCddEnable
     *********************************************************************************************************************/
-    /* workaround#COMMON - MAG-438 - Init task overrun issue */
+
     /* Enable DDS Entities */
     DdsCdd_Adapter_Enable_DDSEntities();
+
+    /**********************************************************************************************************************
+    * DO NOT CHANGE THIS COMMENT!           << End of runnable implementation >>               DO NOT CHANGE THIS COMMENT!
+    *********************************************************************************************************************/
+}
+
+/**********************************************************************************************************************
+*
+* Runnable Entity Name: Init
+*
+*---------------------------------------------------------------------------------------------------------------------
+*
+* Executed once after the RTE is started
+*
+*********************************************************************************************************************/
+/**********************************************************************************************************************
+* DO NOT CHANGE THIS COMMENT!           << Start of documentation area >>                  DO NOT CHANGE THIS COMMENT!
+* Symbol: Start_doc
+*********************************************************************************************************************/
+/**
+* @brief Initialization runnable triggered at ECU startup
+* 
+* Initializes DDS adapter on startup.
+*/
+/**********************************************************************************************************************
+* DO NOT CHANGE THIS COMMENT!           << End of documentation area >>                    DO NOT CHANGE THIS COMMENT!
+*********************************************************************************************************************/
+
+FUNC(void, DdsCdd_CODE) DdsCddInit(void) /* PRQA S 0624, 3206 */ /* MD_Rte_0624, MD_Rte_3206 */
+{
+    /**********************************************************************************************************************
+    * DO NOT CHANGE THIS COMMENT!           << Start of runnable implementation >>             DO NOT CHANGE THIS COMMENT!
+    * Symbol: DdsCddInit
+    *********************************************************************************************************************/
+
+    DdsCdd_Adapter_Init();
 
     /**********************************************************************************************************************
     * DO NOT CHANGE THIS COMMENT!           << End of runnable implementation >>               DO NOT CHANGE THIS COMMENT!
@@ -353,31 +371,13 @@ FUNC(void, DdsCdd_CODE) DdsCddWrite_Cabin_Door_PDIO_FL(void) /* PRQA S 0624, 320
     *********************************************************************************************************************/
 }
 
-/* workaround#COMMON - MICRO-14137 - wrong position, DdsCdd_Init placed outside. */
-#if 0
-#define DdsCdd_STOP_SEC_CODE
+/* workaround#HAE - MAG-461 - section naming rule (mobilgene specific) */
+#define DdsCddType_STOP_SEC_CODE
 #include "DdsCddType_MemMap.h" /* PRQA S 5087 */ /* MD_MSR_MemMap */
-#endif
 
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << Start of function definition area >>            DO NOT CHANGE THIS COMMENT!
 *********************************************************************************************************************/
-
-FUNC(void, DdsCdd_CODE) DdsCdd_Init(void) 
-{
-    /* TODO: Create entities once micro allows doing so before rte*/
-    /* workaround#COMMON - MAG-438 - Init task overrun issue */
-    /* Initialize DDS adapter layer */
-    DdsCdd_Adapter_Init();    //This function will be called by EcuM directly before StartOs.
-}
-
-/* workaround#HAE - MICRO-14137 - right position and senction name */
-#ifdef VVIRTUALTARGET
-#define DdsCdd_STOP_SEC_CODE
-#else
-#define DdsCddType_STOP_SEC_CODE
-#endif
-#include "DdsCddType_MemMap.h" /* PRQA S 5087 */ /* MD_MSR_MemMap */
 
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << End of function definition area >>              DO NOT CHANGE THIS COMMENT!

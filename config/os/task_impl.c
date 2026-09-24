@@ -15,6 +15,10 @@
 
 #include "StackMonitor.h"
 
+extern void DdsCdd_LocalIpAddrAssignmentChg(
+    TcpIp_LocalAddrIdType LocalAddrId,
+    TcpIp_IpAddrStateType State);
+
 /*
  * Phase 7.2 - Minimal OS error observation.
  *
@@ -44,20 +48,11 @@ void ErrorHook(StatusType error)
     g_phase7_os_error.count++;
 }
 
-extern void DdsCdd_Init(void);
-extern void DdsCddStart(void);
-extern void DdsCdd_LocalIpAddrAssignmentChg(
-    TcpIp_LocalAddrIdType LocalAddrId,
-    TcpIp_IpAddrStateType State);
-
 static int TcpIp_TestSocket = -1;
 static boolean tcpip_initialized = FALSE;
 
 int main(void)
-{    
-    printf("[Virtual AUTOSAR] DdsCdd_Init before StartOS\n");
-    DdsCdd_Init();
-
+{
     printf("[Virtual AUTOSAR] Initializing task stack monitor\n");
     Phase9_StackMonitor_Init();
 
@@ -66,24 +61,6 @@ int main(void)
 
     return 0;
 }
-
-TASK(RTI_Task)
-{
-    printf("[Virtual AUTOSAR] RTI_Task started\n");    
-
-    DdsCddStart();
-
-    DdsCdd_LocalIpAddrAssignmentChg(
-            (TcpIp_LocalAddrIdType)0U,
-            TCPIP_IPADDR_STATE_ASSIGNED);
-            
-    printf("[Bsw_InitTask] DdsCdd_LocalIpAddrAssignmentChg completed\n");
-
-    printf("[Virtual AUTOSAR] DdsCddStart completed\n");
-
-    TerminateTask();
-}
-
 
 static FILE *g_tcpip_log = NULL;
 
@@ -236,6 +213,18 @@ static void TcpIp_PollTx(void)
 
 TASK(TcpIp_Task)
 {
+    static boolean socket_enabled = FALSE;
+
+    if (!socket_enabled)
+    {
+        DdsCdd_LocalIpAddrAssignmentChg(
+            (TcpIp_LocalAddrIdType)0U,
+            TCPIP_IPADDR_STATE_ASSIGNED);
+        printf("[DdsCddStart_Task] Local IP address assignment changed.\n");
+
+        socket_enabled = TRUE;
+    }
+    
     if (tcpip_initialized)
     {
     /*
