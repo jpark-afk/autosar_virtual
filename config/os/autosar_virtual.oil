@@ -54,6 +54,10 @@ CPU autosar_virtual {
     RESOURCE OsResource_DdsNetio {
         RESOURCEPROPERTY = STANDARD;
     };
+
+    RESOURCE OsResource_DdsIpQueue {
+        RESOURCEPROPERTY = STANDARD;
+    };
     
 
     /* ----------------------------------------------------------------------
@@ -147,6 +151,10 @@ CPU autosar_virtual {
         MASK = AUTO;
     };
 
+    EVENT OsEventDdsIpAssignment {
+        MASK = AUTO;
+    };
+
     /* ----------------------------------------------------------------------
      * Tasks
      * ---------------------------------------------------------------------- */
@@ -191,6 +199,22 @@ CPU autosar_virtual {
         ACTIVATION = 1;
         SCHEDULE = FULL;
         RESOURCE = OsResource_DdsNetio;
+        RESOURCE = OsResource_DdsIpQueue;
+    };
+
+    TASK DdsCddIpAddr_Task {
+        PRIORITY = 6;
+        AUTOSTART = TRUE {
+            APPMODE = stdAppmode;
+        };
+        ACTIVATION = 1;
+        SCHEDULE = FULL;
+
+        EVENT = OsEventDdsIpAssignment;
+        RESOURCE = OsResource_DdsIpQueue;
+        RESOURCE = OsResource_DdsMutex;
+        RESOURCE = OsResource_DdsNetio;
+        RESOURCE = OsResource_DdsTimer;
     };
     
     TASK DdsCddProcessData_Task {

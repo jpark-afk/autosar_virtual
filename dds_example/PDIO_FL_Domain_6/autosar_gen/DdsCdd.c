@@ -38,6 +38,8 @@
 
 #include "Rte_DdsCddType.h"
 
+#include "DdsCdd_IpAddr.h" //Workaround#HAE - IpAddr_Async
+
 /**********************************************************************************************************************
 * DO NOT CHANGE THIS COMMENT!           << Start of include and declaration area >>        DO NOT CHANGE THIS COMMENT!
 *********************************************************************************************************************/
@@ -323,6 +325,11 @@ FUNC(void, DdsCdd_CODE) DdsCddInit(void) /* PRQA S 0624, 3206 */ /* MD_Rte_0624,
     *********************************************************************************************************************/
 }
 
+//Workaround#HAE - IpAddr_Async
+FUNC(void, DdsCdd_CODE) DdsCdd_LocalIpAddrAssignmentChg_Process(void)
+{
+    DdsCdd_ProcessIpAssignmentQueue();
+}
 /**********************************************************************************************************************
 *
 * Runnable Entity Name: Write_Cabin_Door_PDIO_FL

@@ -29,6 +29,7 @@ typedef struct
 #define TCPIP_LOCALADDRID_ANY  ((TcpIp_LocalAddrIdType)0xFFU)
 #define TCPIP_PORT_ANY         ((uint16)0U)
 #define TCPIP_E_ARP_CACHE_MISS ((Std_ReturnType)0x02U)
+#define TCPIP_LOCAL_ADDR_COUNT ((TcpIp_LocalAddrIdType)2U)
 
 #ifndef TCPIP_ENABLE_DIAGNOSTIC_LOG
 #define TCPIP_ENABLE_DIAGNOSTIC_LOG 0
@@ -54,7 +55,16 @@ Std_ReturnType TcpIp_TcpIp_DdsCddGetSocket(
     TcpIp_ProtocolType protocol,
     TcpIp_SocketIdType *socket_id);
 
-void TcpIp_PollDdsRx(void);
+Std_ReturnType TcpIp_TcpIp_ExtraGetSocket(
+    TcpIp_DomainType domain,
+    TcpIp_ProtocolType protocol,
+    TcpIp_SocketIdType *socket_id);
+
+void TcpIp_LocalIpAddrAssignmentChg(
+    TcpIp_LocalAddrIdType LocalAddrId,
+    TcpIp_IpAddrStateType State);
+
+void TcpIp_PollSocketRx(void);
 
 Std_ReturnType TcpIp_UdpTransmit(
     TcpIp_SocketIdType SocketId,
@@ -64,12 +74,14 @@ Std_ReturnType TcpIp_UdpTransmit(
 
 typedef void (*TcpIp_RxIndicationType)(
     TcpIp_SocketIdType SocketId,
-    const uint8 *DataPtr,
+    const TcpIp_SockAddrType *RemoteAddrPtr,
+    uint8 *DataPtr,
     uint16 DataLength);    
 
 void TcpIp_RxIndication(
     TcpIp_SocketIdType SocketId,
-    const uint8 *DataPtr,
+    const TcpIp_SockAddrType *RemoteAddrPtr,
+    uint8 *DataPtr,
     uint16 DataLength);
 
 extern void TcpIp_Log(const char *msg);

@@ -172,7 +172,7 @@ RTI_PRIVATE int SetSystemProperties(void)
     /* Set AUTOSAR TcpIp integration callbacks */
     system_property.psl_property.get_socket = DdsCdd_GetSocket;
     system_property.psl_property.send_data = NULL;
-    system_property.psl_property.max_local_addr_id = 2;
+    system_property.psl_property.max_local_addr_id = 1;
 
     system_property.psl_property.send_local_addr_id = 0;
 
@@ -504,7 +504,7 @@ void DdsCdd_LocalIpAddrAssignmentChg(
         TcpIp_LocalAddrIdType LocalAddrId,
         TcpIp_IpAddrStateType State
         )
-{
+{    
     NETIO_Autosar_update_ip_assignment_state(LocalAddrId, State);
     if((State == TCPIP_IPADDR_STATE_ASSIGNED))
     {

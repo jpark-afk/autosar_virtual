@@ -1,9 +1,4 @@
 #include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <errno.h>
 
 #include "tpl_os.h"
 #include "rti_me_psl.h"
@@ -14,10 +9,6 @@
 #include "VirtualAswc.h"
 
 #include "StackMonitor.h"
-
-extern void DdsCdd_LocalIpAddrAssignmentChg(
-    TcpIp_LocalAddrIdType LocalAddrId,
-    TcpIp_IpAddrStateType State);
 
 /*
  * Phase 7.2 - Minimal OS error observation.
@@ -48,7 +39,6 @@ void ErrorHook(StatusType error)
     g_phase7_os_error.count++;
 }
 
-static int TcpIp_TestSocket = -1;
 static boolean tcpip_initialized = FALSE;
 
 int main(void)
@@ -92,122 +82,8 @@ void TcpIp_Log(const char *msg)
 
 static void TcpIp_Init(void)
 {
-    uint16 local_port = 50001U;
-
     printf("[TcpIp] Init\n");
     TcpIp_LogInit();
-
-    TcpIp_TestSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-    if (TcpIp_TestSocket < 0)
-    {
-        printf("[TcpIp] socket FAIL\n");
-        return;
-    }
-
-    /*
-     * Non-blocking socket.
-     * TcpIp_Task must never block the AUTOSAR OS.
-     */
-    int flags = fcntl(TcpIp_TestSocket, F_GETFL, 0);
-
-    if (flags >= 0)
-    {
-        (void)fcntl(
-            TcpIp_TestSocket,
-            F_SETFL,
-            flags | O_NONBLOCK);
-    }
-
-    if (TcpIp_Bind(
-            (TcpIp_SocketIdType)TcpIp_TestSocket,
-            (TcpIp_LocalAddrIdType)0U,
-            &local_port) != E_OK)
-    {
-        printf("[TcpIp] TcpIp_Bind FAIL\n");
-        close(TcpIp_TestSocket);
-        TcpIp_TestSocket = -1;
-        return;
-    }
-
-    printf("[TcpIp] UDP socket ready, port=%u\n", local_port);
-}
-
-static void TcpIp_PollRx(void)
-{
-    uint8 rx_buffer[1500];
-    struct sockaddr_in remote;
-    socklen_t remote_len = sizeof(remote);
-
-    if (TcpIp_TestSocket < 0)
-    {
-        return;
-    }
-
-    for (;;)
-    {
-        ssize_t rx_len;
-
-        rx_len = recvfrom(
-            TcpIp_TestSocket,
-            rx_buffer,
-            sizeof(rx_buffer),
-            0,
-            (struct sockaddr *)&remote,
-            &remote_len);
-
-        if (rx_len < 0)
-        {
-            if (errno == EAGAIN || errno == EWOULDBLOCK)
-            {
-                break;
-            }
-
-            printf("[TcpIp] recvfrom FAIL: errno=%d\n", errno);
-            break;
-        }
-
-        printf("[TcpIp] UDP RX: %ld bytes\n", (long)rx_len);
-        
-        TcpIp_Log("[TcpIp_PollRx] UDP received.\n");
-
-        /*
-         * Actual TcpIp receive indication.
-         */
-        TcpIp_RxIndication(
-            (TcpIp_SocketIdType)TcpIp_TestSocket,
-            rx_buffer,
-            (uint16)rx_len);
-    }
-}
-
-static void TcpIp_PollTx(void)
-{
-    uint8 data[] = "AUTOSAR UDP TEST";
-    TcpIp_SockAddrInetType remote;
-
-    if (TcpIp_TestSocket < 0)
-    {
-        return;
-    }
-
-    remote.domain = TCPIP_AF_INET;
-    remote.port = 50000U;
-
-    remote.addr[0] =
-        htonl((192U << 24) |
-              (168U << 16) |
-              (56U << 8) |
-              1U);
-
-    if (TcpIp_UdpTransmit(
-            (TcpIp_SocketIdType)TcpIp_TestSocket,
-            data,
-            (TcpIp_SockAddrType *)&remote,
-            (uint16)(sizeof(data) - 1U)) == E_OK)
-    {
-        printf("[TcpIp] UDP TX PASS\n");
-    }
 }
 
 
@@ -217,10 +93,23 @@ TASK(TcpIp_Task)
 
     if (!socket_enabled)
     {
-        DdsCdd_LocalIpAddrAssignmentChg(
-            (TcpIp_LocalAddrIdType)0U,
-            TCPIP_IPADDR_STATE_ASSIGNED);
-        printf("[DdsCddStart_Task] Local IP address assignment changed.\n");
+        TcpIp_LocalAddrIdType local_addr_id;
+
+        GetResource(OsResource_DdsIpQueue);
+
+        for (local_addr_id = (TcpIp_LocalAddrIdType)0U;
+             local_addr_id < TCPIP_LOCAL_ADDR_COUNT;
+             local_addr_id++)
+        {
+            TcpIp_LocalIpAddrAssignmentChg(
+                local_addr_id,
+                TCPIP_IPADDR_STATE_ASSIGNED);
+        }
+
+        SetEvent(DdsCddIpAddr_Task, OsEventDdsIpAssignment);
+        ReleaseResource(OsResource_DdsIpQueue);
+
+        printf("[TcpIp_Task] Local IP address assignments changed.\n");
 
         socket_enabled = TRUE;
     }
@@ -230,13 +119,7 @@ TASK(TcpIp_Task)
     /*
      * 5 ms polling
      */
-    TcpIp_PollRx();
-    TcpIp_PollDdsRx();
-
-    /*
-     * Optional TX test.
-     */
-    //TcpIp_PollTx();
+    TcpIp_PollSocketRx();
     }
 
     TerminateTask();

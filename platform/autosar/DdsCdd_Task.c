@@ -14,6 +14,7 @@ extern void DdsCddRead_GCS_LEFT_2_PDIO_FL(void);
 extern void DdsCddTimerTick(void);
 extern void DdsCddTimerUpdate(void);
 extern void DdsCddWrite_Cabin_Door_PDIO_FL(void);
+extern void DdsCdd_LocalIpAddrAssignmentChg_Process(void);
 
 /* --------------------------------------------------------------------------
  * CDD initialization and start tasks
@@ -133,6 +134,27 @@ TASK(DdsCddProcessData_Task)
             ClearEvent(DdsCddProcessDataEvent);
 
             DdsCddProcessData();
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------
+ * CDD local IP address assignment task
+ * -------------------------------------------------------------------------- */
+
+TASK(DdsCddIpAddr_Task)
+{
+    EventMaskType events;
+
+    for (;;)
+    {
+        WaitEvent(OsEventDdsIpAssignment);
+        GetEvent(DdsCddIpAddr_Task, &events);
+
+        if ((events & OsEventDdsIpAssignment) != 0U)
+        {
+            ClearEvent(OsEventDdsIpAssignment);
+            DdsCdd_LocalIpAddrAssignmentChg_Process();
         }
     }
 }
