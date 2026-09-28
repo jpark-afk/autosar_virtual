@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 
@@ -10,6 +11,7 @@ PID_TASK = 1
 PID_ALARM = 2
 PID_EVENT = 3
 PID_RESOURCE = 4
+PID_PRIORITY = 5
 
 
 # Perfetto/Chrome trace reserves tid=0 effectively as the process-level
@@ -59,6 +61,63 @@ def add_thread_name(events, pid, tid, name):
     })
 
 
+def load_oil_priorities(path):
+    text = Path(path).read_text(encoding="utf-8")
+    blocks = {}
+    block_pattern = re.compile(
+        r"\b(TASK|RESOURCE)\s+([A-Za-z_]\w*)\s*\{"
+    )
+
+    for match in block_pattern.finditer(text):
+        depth = 1
+        index = match.end()
+
+        while depth and index < len(text):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+            index += 1
+
+        blocks[(match.group(1), match.group(2))] = text[
+            match.end():index - 1
+        ]
+
+    task_priorities = {}
+    task_resources = {}
+
+    for (kind, name), body in blocks.items():
+        priority_match = re.search(
+            r"\bPRIORITY\s*=\s*(\d+)",
+            body,
+        )
+
+        if kind == "TASK":
+            if priority_match:
+                task_priorities[name] = int(priority_match.group(1))
+
+            task_resources[name] = re.findall(
+                r"\bRESOURCE\s*=\s*([A-Za-z_]\w*)\s*;",
+                body,
+            )
+
+    resource_ceilings = {}
+
+    for task_name, resources in task_resources.items():
+        priority = task_priorities.get(task_name)
+
+        if priority is None:
+            continue
+
+        for resource_name in resources:
+            resource_ceilings[resource_name] = max(
+                priority,
+                resource_ceilings.get(resource_name, priority),
+            )
+
+    return task_priorities, resource_ceilings
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -69,6 +128,11 @@ def main():
 
     parser.add_argument("trace")
     parser.add_argument("--static-info", required=True)
+    parser.add_argument(
+        "--oil",
+        default="config/os/autosar_virtual.oil",
+        help="OIL source for declared task priorities and resource ceilings",
+    )
     parser.add_argument(
         "--runtime-monitor",
         default="tools/runtime_monitor/runtime_monitor.py",
@@ -91,11 +155,13 @@ def main():
 
     static_info = rm.StaticInfo(args.static_info)
     deriver = rm.RuntimeDeriver(static_info)
+    oil_task_priorities, oil_resource_ceilings = load_oil_priorities(args.oil)
 
     events = []
     running = {}
     pending = {}
     held_resources = {}
+    priority_states = {}
 
     raw_count = 0
     derived_count = 0
@@ -193,6 +259,77 @@ def main():
 
         events.append(e)
 
+    def task_priority(task_id):
+        if task_id is None:
+            return None
+
+        if 0 <= int(task_id) < len(static_info.tasks):
+            task_name = static_info.task_name(int(task_id))
+            return oil_task_priorities.get(
+                task_name,
+                static_info.tasks[int(task_id)].get("PRIORITY"),
+            )
+
+        return None
+
+    def resource_priority(resource_id):
+        if 0 <= int(resource_id) < len(static_info.resources):
+            resource_name = static_info.resource_name(int(resource_id))
+            return oil_resource_ceilings.get(
+                resource_name,
+                static_info.resources[int(resource_id)].get("PRIORITY"),
+            )
+
+        return None
+
+    def update_priority_boost(task_id, timestamp, timestamp_hires):
+        state = priority_states.get(task_id)
+
+        if state is None:
+            return
+
+        old_effective = state["effective"]
+        ceilings = [item["ceiling"] for item in state["holds"]]
+        new_effective = max([state["base"]] + ceilings)
+
+        if new_effective == old_effective:
+            return
+
+        state["effective"] = new_effective
+        highest_hold = max(
+            state["holds"],
+            key=lambda item: item["ceiling"],
+            default=None,
+        )
+        is_boost = new_effective > state["base"]
+        extra = {
+            "task": static_info.task_name(task_id),
+            "base_priority": state["base"],
+            "previous_effective_priority": old_effective,
+            "effective_priority": new_effective,
+            "reason": "resource_acquire" if is_boost else "resource_release",
+            "timing": (
+                "CLOCK_MONOTONIC"
+                if timestamp_hires is not None
+                else "LOGICAL_TICK"
+            ),
+        }
+
+        if highest_hold is not None:
+            extra["resource"] = highest_hold["resource"]
+            extra["priority_ceiling"] = highest_hold["ceiling"]
+
+        emit = instant_hires if timestamp_hires is not None else instant
+        emit(
+            "PRIORITY_BOOST" if is_boost else "PRIORITY_RESTORE",
+            "autosar.task.priority",
+            timestamp_hires if timestamp_hires is not None else timestamp,
+            PID_PRIORITY,
+            task_tid(task_id),
+            extra,
+        )
+        state["hires"] = timestamp_hires is not None
+
     # ------------------------------------------------------------
     # Semantic process groups
     # ------------------------------------------------------------
@@ -201,6 +338,7 @@ def main():
     add_process_name(events, PID_ALARM, "AUTOSAR Alarms")
     add_process_name(events, PID_EVENT, "AUTOSAR Events")
     add_process_name(events, PID_RESOURCE, "AUTOSAR Resources")
+    add_process_name(events, PID_PRIORITY, "AUTOSAR Effective Priority")
 
     # ------------------------------------------------------------
     # Task tracks
@@ -212,7 +350,10 @@ def main():
     for tid in range(task_count + 1):
         task = static_info.tasks[tid] if tid < task_count else {}
         task_name = static_info.task_name(tid)
-        priority = task.get("PRIORITY")
+        priority = oil_task_priorities.get(
+            static_info.task_name(tid),
+            task.get("PRIORITY"),
+        )
 
         if priority is not None:
             task_name = f"{task_name} [priority={priority}]"
@@ -234,9 +375,17 @@ def main():
                 {
                     "task": static_info.task_name(tid),
                     "priority": priority,
+                    "priority_source": "OIL",
                     "activation": task.get("ACTIVATION"),
                     "schedule": task.get("SCHEDULE"),
                 },
+            )
+
+            add_thread_name(
+                events,
+                PID_PRIORITY,
+                task_tid(tid),
+                f"{static_info.task_name(tid)} effective priority",
             )
 
     # ------------------------------------------------------------
@@ -645,10 +794,13 @@ def main():
 
                 if typ == "RESOURCE_ACQUIRE":
                     use_hires = record_hires_us is not None
+                    owner_task_id = d.get("owner_task_id")
+                    ceiling = resource_priority(resource_id)
                     extra = {
                         "autosar_resource_id": resource_id,
                         "resource": d.get("resource"),
                         "owner": d.get("owner"),
+                        "priority_ceiling": ceiling,
                     }
 
                     if use_hires:
@@ -670,17 +822,71 @@ def main():
                             extra,
                         )
 
-                    held_resources.setdefault(tid, []).append(use_hires)
+                    held_resources.setdefault(tid, []).append(
+                        {
+                            "hires": use_hires,
+                            "owner_task_id": owner_task_id,
+                        }
+                    )
+
+                    base = task_priority(owner_task_id)
+
+                    if (
+                        owner_task_id is not None
+                        and base is not None
+                        and ceiling is not None
+                    ):
+                        state = priority_states.setdefault(
+                            owner_task_id,
+                            {
+                                "base": base,
+                                "effective": base,
+                                "holds": [],
+                                "hires": use_hires,
+                            },
+                        )
+                        state["holds"].append(
+                            {
+                                "resource_id": resource_id,
+                                "resource": d.get("resource"),
+                                "ceiling": ceiling,
+                            }
+                        )
+                        update_priority_boost(
+                            owner_task_id,
+                            ts,
+                            record_hires_us,
+                        )
                 else:
                     held = held_resources.get(tid, [])
 
                     if held:
-                        use_hires = held.pop()
+                        held_entry = held.pop()
+                        use_hires = held_entry["hires"]
 
                         if use_hires and record_hires_us is not None:
                             end_hires(record_hires_us, PID_RESOURCE, tid)
                         else:
                             end(ts, PID_RESOURCE, tid)
+
+                        owner_task_id = held_entry["owner_task_id"]
+                        state = priority_states.get(owner_task_id)
+
+                        if state is not None:
+                            for index in range(
+                                len(state["holds"]) - 1,
+                                -1,
+                                -1,
+                            ):
+                                if state["holds"][index]["resource_id"] == resource_id:
+                                    state["holds"].pop(index)
+                                    break
+
+                            update_priority_boost(
+                                owner_task_id,
+                                ts,
+                                record_hires_us,
+                            )
                     else:
                         (instant_hires if record_hires_us is not None else instant)(
                             "RELEASE_UNMATCHED",
@@ -717,7 +923,8 @@ def main():
 
     for tid, held in held_resources.items():
         while held:
-            use_hires = held.pop()
+            held_entry = held.pop()
+            use_hires = held_entry["hires"]
 
             if use_hires and last_hires_us is not None:
                 end_hires(last_hires_us, PID_RESOURCE, tid)

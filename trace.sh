@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 TRACE_FILE="${1:-trace.json}"
 
 STATIC_INFO="autosar_virtual/tpl_static_info.json"
+OIL_CONFIG="config/os/autosar_virtual.oil"
 MONITOR="tools/runtime_monitor/runtime_monitor.py"
 PERFETTO_EXPORTER="tools/perfetto/trampoline_to_perfetto.py"
 
@@ -18,6 +19,7 @@ echo "[AUTOSAR] Runtime Trace Post-Processing"
 echo "============================================================"
 echo "Trace       : $TRACE_FILE"
 echo "Static info : $STATIC_INFO"
+echo "OIL config  : $OIL_CONFIG"
 echo
 
 # --------------------------------------------------------------------------
@@ -73,6 +75,7 @@ echo "------------------------------------------------------------"
 python3 "$PERFETTO_EXPORTER" \
     "$TRACE_FILE" \
     --static-info "$STATIC_INFO" \
+    --oil "$OIL_CONFIG" \
     -o "$PERFETTO_OUTPUT"
 
 # --------------------------------------------------------------------------

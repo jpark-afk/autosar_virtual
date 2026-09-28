@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <execinfo.h>
+#include <unistd.h>
 
 #include "tpl_os.h"
 #include "rti_me_psl.h"
@@ -13,11 +15,8 @@
 /*
  * Phase 7.2 - Minimal OS error observation.
  *
- * ErrorHook must remain bounded:
- * - no printf
- * - no allocation
- * - no blocking
- * - no socket/file I/O
+ * This diagnostic build prints ErrorHook activity so SC3 resource access
+ * violations are visible during the experiment.
  */
 typedef struct
 {
@@ -34,9 +33,26 @@ static Phase7_OsErrorRecord g_phase7_os_error = {
 
 void ErrorHook(StatusType error)
 {
+    void *stack_frames[32];
+    int stack_count;
+
     g_phase7_os_error.error = error;
     g_phase7_os_error.service_id = OSErrorGetServiceId();
     g_phase7_os_error.count++;
+    printf(
+        "[OS ErrorHook] error=%u service_id=%u count=%lu\n",
+        (unsigned)error,
+        (unsigned)g_phase7_os_error.service_id,
+        g_phase7_os_error.count);
+    fflush(stdout);
+
+    stack_count = backtrace(stack_frames, 32);
+    fprintf(
+        stderr,
+        "[OS ErrorHook] native stack frames=%d\n",
+        stack_count);
+    backtrace_symbols_fd(stack_frames, stack_count, STDERR_FILENO);
+    fflush(stderr);
 }
 
 static boolean tcpip_initialized = FALSE;
@@ -95,8 +111,6 @@ TASK(TcpIp_Task)
     {
         TcpIp_LocalAddrIdType local_addr_id;
 
-        GetResource(OsResource_DdsIpQueue);
-
         for (local_addr_id = (TcpIp_LocalAddrIdType)0U;
              local_addr_id < TCPIP_LOCAL_ADDR_COUNT;
              local_addr_id++)
@@ -107,7 +121,6 @@ TASK(TcpIp_Task)
         }
 
         SetEvent(DdsCddIpAddr_Task, OsEventDdsIpAssignment);
-        ReleaseResource(OsResource_DdsIpQueue);
 
         printf("[TcpIp_Task] Local IP address assignments changed.\n");
 

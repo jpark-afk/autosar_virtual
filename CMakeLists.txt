@@ -116,6 +116,7 @@ target_compile_definitions(autosar_virtual PRIVATE
     OSPSL_OS_DEF_H=rti_me_psl/ospsl/ospsl_os_autosar.h
     RTIME_INCLUDE_AUTOSAR
     RTIME_AUTOSAR_WINCORE
+    OSAPI_ENABLE_TRACE=0
 )
 
 target_include_directories(autosar_virtual PRIVATE
@@ -154,12 +155,12 @@ target_compile_options(autosar_virtual PRIVATE
 
 target_link_libraries(autosar_virtual PRIVATE
     "-Wl,--start-group"
-    ${RTI_PIL_LIB_DIR}/librti_mezd.a
-    ${RTI_PIL_LIB_DIR}/librti_me_appgenzd.a
-    ${RTI_PIL_LIB_DIR}/librti_me_discdpdezd.a
-    ${RTI_PIL_LIB_DIR}/librti_me_discdpsezd.a
-    ${RTI_PIL_LIB_DIR}/librti_me_rhsmzd.a
-    ${RTI_PIL_LIB_DIR}/librti_me_whsmzd.a
+    ${RTI_PIL_LIB_DIR}/librti_mez.a
+    ${RTI_PIL_LIB_DIR}/librti_me_appgenz.a
+    ${RTI_PIL_LIB_DIR}/librti_me_discdpdez.a
+    ${RTI_PIL_LIB_DIR}/librti_me_discdpsez.a
+    ${RTI_PIL_LIB_DIR}/librti_me_rhsmz.a
+    ${RTI_PIL_LIB_DIR}/librti_me_whsmz.a
     "-Wl,--end-group"
     rt
     pthread
